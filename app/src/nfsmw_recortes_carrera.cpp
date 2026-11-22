@@ -146,8 +146,8 @@ REXCVAR_DEFINE_BOOL(nfsmw_reflejo_carretera, true, "NFSMW",
  * the water becomes visible again, its first frame reads a reflection at most 3 frames old (~100 ms) and
  * the next one is already up to date.
  * Self-checking guard: in each run, for the first 90 frames it is always drawn and the guard checks that
- * address 0x07C5A000 really is the reflection; if not, or if it keeps being resolved in skipped frames, it
- * turns itself off and says so in the log. false = always draw it.
+ * the edition's expected address is resolved; if not, or if the copies no longer agree with drawn frames,
+ * it turns itself off and says so in the log. false = always draw it.
  */
 REXCVAR_DEFINE_BOOL(nfsmw_reflejo_bajo_demanda, true, "NFSMW",
                     "Dibujar el reflejo de la carretera solo cuando algo lo lee; sin lecturas recientes se renueva 1 de "
@@ -728,6 +728,12 @@ void InformeReflejo(int64_t ahora) {
   if (e.fase == FaseReflejo::kAplicando && e.dibujados + 10 + e.dibujados / 10 < dc) {
     e.fase = FaseReflejo::kApagado;
     REXLOG_ERROR("[recortes] reflejo bajo demanda: DIFERENCIA, {} copias a {:08X} con solo {} fotogramas de reflejo "
+                 "dibujados; se apaga y el reflejo vuelve a dibujarse siempre",
+                 dc, nfsmw::reflejo_demanda::kDireccion, e.dibujados);
+  } else if (e.fase == FaseReflejo::kAplicando && e.dibujados >= 100 &&
+             dc * 4 < uint64_t(e.dibujados) * 3) {
+    e.fase = FaseReflejo::kApagado;
+    REXLOG_ERROR("[recortes] reflejo bajo demanda: DIFERENCIA, solo {} copias a {:08X} con {} fotogramas de reflejo "
                  "dibujados; se apaga y el reflejo vuelve a dibujarse siempre",
                  dc, nfsmw::reflejo_demanda::kDireccion, e.dibujados);
   }

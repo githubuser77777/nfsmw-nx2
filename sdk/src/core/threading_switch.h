@@ -58,8 +58,8 @@ typedef uint32_t RexSwitchHandle;
 /* --- conjuntos de CPU -------------------------------------------------- */
 
 /*
- * The Switch has 4 cores; core 3 is reserved by the system except in title
- * takeover. 64 bits are more than enough and keep the shape of the Linux API.
+ * The mask has 64 bits like the Linux API. The kernel determines which cores
+ * the current process may actually use.
  */
 #define CPU_SETSIZE 64
 

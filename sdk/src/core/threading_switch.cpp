@@ -107,17 +107,23 @@ int pthread_setaffinity_np(pthread_t thread, size_t size, const cpu_set_t* set) 
    * POSIX API being imitated asks for.
    */
   s32 preferido = -1;
-  for (int i = 0; i < 4; i++) {
+#if defined(__SWITCH2__)
+  constexpr int cores = CPU_SETSIZE;
+#else
+  constexpr int cores = 4;
+#endif
+  for (int i = 0; i < cores; i++) {
     if (set->bits & (1ull << i)) { preferido = i; break; }
   }
   if (preferido < 0)
     return EINVAL;  /* mascara vacia: POSIX tampoco lo permite */
 
-  /*
-   * Only 4 cores exist. Asking for more is not a caller error (the SDK
-   * passes 64-bit masks), so it is trimmed silently.
-   */
+  // Switch 1 has four cores; Switch 2 masks must reach the kernel intact.
+#if defined(__SWITCH2__)
+  const u64 mascara = set->bits;
+#else
   const u32 mascara = static_cast<u32>(set->bits & 0xF);
+#endif
 
   if (R_FAILED(svcSetThreadCoreMask(h, preferido, mascara)))
     return EPERM;
@@ -275,6 +281,9 @@ void RexSwitchSetCurrentThreadPriority(int priority) {
  * mask: that is the "Too few processor cores" error seen when trying to use the fourth core).
  */
 bool RexSwitchSetCurrentThreadCore(int core) {
+  if (core < -1 || core >= 64) {
+    return false;
+  }
   Thread* yo = threadGetSelf();
   Handle h = (yo != nullptr) ? yo->handle : CUR_THREAD_HANDLE;
   s32 preferido = 0;
@@ -303,7 +312,7 @@ bool RexSwitchSetCurrentThreadCore(int core) {
  * checked in the log. See docs/platform-notes.md (Threads).
  */
 bool RexSwitchPinCurrentThreadToCore(int core) {
-  if (core < 0) {
+  if (core < 0 || core >= 64) {
     return false;
   }
   Thread* yo = threadGetSelf();

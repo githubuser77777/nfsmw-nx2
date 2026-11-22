@@ -64,6 +64,7 @@
 #include <string>
 
 #include <rex/cvar.h>
+#include <rex/memory/guest_address.h>
 #include <rex/platform.h>
 #if REX_PLATFORM_SWITCH
 // The handheld/docked mode to obey, Reverse-NX included.
@@ -117,6 +118,15 @@ extern "C" void RexSwitchPerfResolution(unsigned ancho, unsigned alto);
 namespace nfsmw::render_targets {
 namespace {
 
+template <typename T>
+T* PunteroInvitado(T* base, uint32_t direccion) {
+#if defined(__SWITCH2__)
+  return base + rex::memory::FoldGuestAddress(direccion);
+#else
+  return base + direccion;
+#endif
+}
+
 // Mode table inside the renderer object (see the header comment).
 constexpr uint32_t kModos = 6;
 constexpr uint32_t kOffTiras = 4;
@@ -152,13 +162,13 @@ constexpr uint32_t kDescTiras = 124;
 
 uint32_t Leer32(const uint8_t* base, uint32_t direccion) {
   uint32_t v = 0;
-  std::memcpy(&v, base + direccion, sizeof(v));
+  std::memcpy(&v, PunteroInvitado(base, direccion), sizeof(v));
   return __builtin_bswap32(v);
 }
 
 void Escribir32(uint8_t* base, uint32_t direccion, uint32_t valor) {
   const uint32_t v = __builtin_bswap32(valor);
-  std::memcpy(base + direccion, &v, sizeof(v));
+  std::memcpy(PunteroInvitado(base, direccion), &v, sizeof(v));
 }
 
 struct Modo {
@@ -224,7 +234,8 @@ void IgualarModosAlModoSinAa(uint8_t* base, uint32_t obj) {
       Escribir32(base, obj + kOffMsaa + 4 * m, 0);
     }
     // Only the first tile is read (sub_82458850 copies tiles*16 bytes).
-    std::memcpy(base + obj + kOffRects + kBytesPorModoRects * m, base + rect2, 16);
+    std::memcpy(PunteroInvitado(base, obj + kOffRects + kBytesPorModoRects * m),
+                PunteroInvitado(base, rect2), 16);
   }
 
   // And mode 4 becomes the 1080p one, with its own set. That way the resolution changes live by choosing

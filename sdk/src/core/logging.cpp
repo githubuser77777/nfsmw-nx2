@@ -222,7 +222,11 @@ void InitLoggingEarly() {
   sink->set_pattern("[%l] [%n] %v");
   g_early_sink = sink;
 
+#if defined(__SWITCH2__) && !defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  g_config.default_level = spdlog::level::warn;
+#else
   g_config.default_level = kDefaultLogLevel;
+#endif
 
   // Create loggers for any categories already registered during static init
   for (auto& entry : g_registry) {

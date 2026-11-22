@@ -7,6 +7,12 @@
 
 A native Nintendo Switch port of the Xbox 360 version of **Need for Speed: Most Wanted** (2005).
 
+> [!IMPORTANT]
+> This fork adds an experimental Switch 2 build using [ounce-devkit](https://github.com/ouncebrew/ounce-devkit).
+> The USA edition has been played on hardware, but compatibility is incomplete and stable 60 FPS is not guaranteed.
+> The installer below is for the upstream Switch 1 release, not this Switch 2 build. Build the Switch 2 NRO locally
+> from your own game using [the build instructions](docs/building.md#experimental-switch-2-build).
+
 It's not an emulator. The PowerPC code of the game's `default.xex` is statically recompiled to C++ with
 [ReXGlue](https://github.com/rexglue/rexglue-sdk) and compiled for the Switch and the game is drawn by a native
 Vulkan renderer running on NVK (Mesa). It targets **30 FPS at the console's stock clocks** with no overclock.

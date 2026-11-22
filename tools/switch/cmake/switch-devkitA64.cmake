@@ -18,6 +18,12 @@ set(CMAKE_SYSTEM_PROCESSOR aarch64)
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
 
 set(REXGLUE_PLATFORM_SWITCH ON CACHE BOOL "Build rexglue for Nintendo Switch/libnx")
+set(REXGLUE_PLATFORM_SWITCH2 OFF CACHE BOOL "Experimental Switch 2 build with libounce and OunceVK")
+option(NFSMW_SWITCH2_DIAGNOSTICS "Enable Switch 2 diagnostic logging and profiling" OFF)
+if(REXGLUE_PLATFORM_SWITCH2 AND NFSMW_SWITCH2_DIAGNOSTICS)
+    add_compile_definitions(NFSMW_SWITCH2_DIAGNOSTICS=1)
+endif()
+list(APPEND CMAKE_TRY_COMPILE_PLATFORM_VARIABLES DEVKITPRO REXGLUE_PLATFORM_SWITCH2)
 set(REXGLUE_ENABLE_TRACY OFF CACHE BOOL "Tracy is unavailable on Switch" FORCE)
 set(REXGLUE_ENABLE_PERF_COUNTERS OFF CACHE BOOL "No perf counters on Switch" FORCE)
 set(REXGLUE_USE_VULKAN ON CACHE BOOL "NVK" FORCE)
@@ -58,7 +64,20 @@ set(CMAKE_CXX_COMPILER_RANLIB "${CMAKE_RANLIB}" CACHE FILEPATH "" FORCE)
 # Tegra X1 / libnx ABI. Local-exec TLS avoids the AArch64 linker relaxation
 # corruption skate3recomp-nx observed in this very large static PIE on
 # secondary threads.
-set(_SWITCH_ARCH_FLAGS "-march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -ftls-model=local-exec -fPIE -D__SWITCH__ -DNX -D_GNU_SOURCE -DSPDLOG_NO_TZ_OFFSET")
+if(REXGLUE_PLATFORM_SWITCH2)
+    set(_SWITCH_ROOT "${DEVKITPRO}/libounce")
+    set(_SWITCH2_PORTLIBS "${DEVKITPRO}/portlibs/switch2")
+    file(STRINGS "${_SWITCH_ROOT}/switch2_cpu.mk" _SWITCH_CPU_LINE REGEX "^SWITCH2_CPU[ \t]*:=")
+    string(REGEX REPLACE "^SWITCH2_CPU[ \t]*:=[ \t]*" "" _SWITCH_CPU "${_SWITCH_CPU_LINE}")
+    if(NOT _SWITCH_CPU)
+        message(FATAL_ERROR "Switch 2 CPU flags not found in ${_SWITCH_ROOT}/switch2_cpu.mk")
+    endif()
+    set(_SWITCH_ARCH_FLAGS "${_SWITCH_CPU} -D__SWITCH2__")
+else()
+    set(_SWITCH_ROOT "${DEVKITPRO}/libnx")
+    set(_SWITCH_ARCH_FLAGS "-march=armv8-a+crc+crypto -mtune=cortex-a57")
+endif()
+string(APPEND _SWITCH_ARCH_FLAGS " -mtp=soft -ftls-model=local-exec -fPIE -D__SWITCH__ -DNX -D_GNU_SOURCE -DSPDLOG_NO_TZ_OFFSET")
 set(CMAKE_C_FLAGS_INIT "-ffunction-sections -fdata-sections ${_SWITCH_ARCH_FLAGS} -Wno-psabi")
 set(CMAKE_CXX_FLAGS_INIT "-ffunction-sections -fdata-sections ${_SWITCH_ARCH_FLAGS} -Wno-psabi")
 set(CMAKE_ASM_FLAGS_INIT "${_SWITCH_ARCH_FLAGS}")
@@ -66,14 +85,19 @@ set(CMAKE_ASM_FLAGS_INIT "${_SWITCH_ARCH_FLAGS}")
 # libnx's stock switch.specs resolves switch.ld through GCC's getenv spec
 # function, which fails at the final link when DEVKITPRO is not exported in the
 # shell (common on Windows). Write a build-local copy with the absolute path.
-set(_SWITCH_SPECS_SOURCE "${DEVKITPRO}/libnx/switch.specs")
+set(_SWITCH_SPECS_SOURCE "${_SWITCH_ROOT}/switch.specs")
 if(NOT EXISTS "${_SWITCH_SPECS_SOURCE}")
     message(FATAL_ERROR "libnx linker specs not found: ${_SWITCH_SPECS_SOURCE}")
 endif()
 file(READ "${_SWITCH_SPECS_SOURCE}" _SWITCH_SPECS_CONTENT)
+if(REXGLUE_PLATFORM_SWITCH2)
+    set(_SWITCH_SPECS_LD "/libounce/switch.ld")
+else()
+    set(_SWITCH_SPECS_LD "/libnx/switch.ld")
+endif()
 string(REPLACE
-    "%:getenv(DEVKITPRO /libnx/switch.ld)"
-    "${DEVKITPRO}/libnx/switch.ld"
+    "%:getenv(DEVKITPRO ${_SWITCH_SPECS_LD})"
+    "${_SWITCH_ROOT}/switch.ld"
     _SWITCH_SPECS_CONTENT
     "${_SWITCH_SPECS_CONTENT}")
 set(_SWITCH_SPECS_CONFIGURED "${CMAKE_BINARY_DIR}/switch.specs")
@@ -83,16 +107,15 @@ file(WRITE "${_SWITCH_SPECS_CONFIGURED}" "${_SWITCH_SPECS_CONTENT}")
 set(CMAKE_EXE_LINKER_FLAGS_INIT "-specs=${_SWITCH_SPECS_CONFIGURED} -Wl,--gc-sections -Wl,--allow-multiple-definition -Wl,--no-relax")
 set(CMAKE_DL_LIBS "")
 
-include_directories(SYSTEM
-    "${_DEVKITA64}/include"
-    "${DEVKITPRO}/libnx/include"
-    "${DEVKITPRO}/portlibs/switch/include")
-link_directories(
-    "${_DEVKITA64}/lib"
-    "${DEVKITPRO}/libnx/lib"
-    "${DEVKITPRO}/portlibs/switch/lib")
+include_directories(SYSTEM "${_DEVKITA64}/include" "${_SWITCH_ROOT}/include")
+if(REXGLUE_PLATFORM_SWITCH2)
+    include_directories(SYSTEM "${_SWITCH2_PORTLIBS}/include")
+    link_directories("${_SWITCH2_PORTLIBS}/lib")
+endif()
+include_directories(SYSTEM "${DEVKITPRO}/portlibs/switch/include")
+link_directories("${_DEVKITA64}/lib" "${_SWITCH_ROOT}/lib" "${DEVKITPRO}/portlibs/switch/lib")
 
-set(CMAKE_FIND_ROOT_PATH "${_DEVKITA64}" "${DEVKITPRO}/libnx" "${DEVKITPRO}/portlibs/switch")
+set(CMAKE_FIND_ROOT_PATH "${_SWITCH2_PORTLIBS}" "${_SWITCH_ROOT}" "${DEVKITPRO}/portlibs/switch" "${_DEVKITA64}")
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)

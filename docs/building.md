@@ -116,6 +116,43 @@ cmake --build app/out/sw8 -j 4
 
 The result is `app/out/sw8/nfsmw.nro`. Rename it to `nfsmw-nx.nro` when you copy it to the SD card (step 8).
 
+### Experimental Switch 2 build
+
+This is an experimental port. Install [ounce-devkit](https://github.com/ouncebrew/ounce-devkit), including
+libounce and OunceVK, alongside devkitPro. Complete the dependency and game code generation steps above, then
+configure a separate build directory (from the repository root):
+
+```powershell
+cmake -S app -B app/out/switch2 -G Ninja -DCMAKE_BUILD_TYPE=Release `
+  "-DCMAKE_TOOLCHAIN_FILE=$PWD/tools/switch/cmake/switch-devkitA64.cmake" `
+  "-DREXSDK_DIR=$PWD/sdk" -DREXGLUE_PLATFORM_SWITCH2=ON `
+  -DNFSMW_PGO= -DNFSMW_BUILD_LAUNCHER=OFF
+cmake --build app/out/switch2 -j 4
+```
+
+The target uses `portlibs/switch2` and libounce, not the Switch 1 Mesa SDK; do not reuse the Switch 1 build
+directory or PGO profile. The Switch 1 APM clock profile, SaltyNX/Reverse-NX integrations and swap-interval
+override are disabled on Switch 2. The Switch 1 GPU profiling counters do not measure OunceVK.
+
+**Experimental memory backend:** a console test of the earlier backend stopped immediately before or during
+`svcMapProcessCodeMemory`; no crash report was available. That backend requires privileged process-memory syscalls.
+[kaiHEN's game-role policy](https://github.com/ouncebrew/kaihen/blob/main/libkaihen/JIT.md) does not permit direct
+code-mapping syscalls. Its JIT API uses a separate staging buffer and executable mapping, not the coherent writable
+aliases required by that backend. The Switch 2 build now experiments with a single, approximately 3 GiB heap arena
+and translates mirrored guest addresses in software instead. This backend has run on a Switch 2, but it cannot
+enforce restrictive page permissions or deliver physical-memory write-watch callbacks; the native renderer's cache
+behavior and remaining direct guest pointers still need verification.
+
+Shared memory is not a proven replacement: the
+[Atmosphère kernel implementation](https://github.com/Atmosphere-NX/Atmosphere/blob/master/libraries/libmesosphere/source/kern_k_shared_memory.cpp)
+maps whole shared-memory objects, while the guest backend independently protects individual pages. A helper process
+would also need permission to create shared memory and enough resources; these constraints and the mapping behavior
+have not been verified on Switch 2.
+
+The USA build has been played on Switch 2, but compatibility is incomplete and stable 60 FPS has not been established.
+OunceVK does not include this project's custom Mesa patch, so matching the Switch 1 driver behavior and performance
+cannot be assumed. Generate the game-dependent code and binary from your own copy; they are not included here.
+
 Build options, in `app/CMakeLists.txt`:
 
 | Option | Normally | What it does |

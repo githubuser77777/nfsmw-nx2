@@ -59,7 +59,7 @@
 //   and then 1 in every 4096 (lists with more than kMaxBucle draws are not compared; the loop picks them at
 //   random, not with a mask, because it is called almost the same number of times every frame). A mismatch
 //   writes "[pegamento] DIFERENCIA" (REXLOG_ERROR) and turns that native version off for the run.
-//   Measured in the same run: the glue times 1 in 16 native calls and 1 in 64 through the original, and the
+//   Measured in the same run: the glue times a sample of native calls and calls through the original, and the
 //   loop 1 in 8 and 1 in 32 at random, per draw; the two "[pegamento]" lines every 10 s give the savings in
 //   ms/s (the loop one is approximate: each draw includes everything it calls, about 8 us).
 
@@ -68,6 +68,15 @@
 #include <rex/logging.h>
 #include "nfsmw_informe_diferido.h"
 #include <rex/platform.h>
+#if defined(__SWITCH2__)
+#include "nfsmw_perfil_cpu.h"
+#include "nfsmw_perfil_subetapas.h"
+#include "nfsmw_pegamento_objeto.h"
+namespace nfsmw::hilos {
+uint64_t ManejadorHiloActual();
+int64_t CpuHiloUs(uint64_t manejador);
+}
+#endif
 // The generated code's macros (REX_RAW_ADDR, REX_LOAD_*, REX_STORE_*, REX_CALL_INDIRECT_FUNC...): the native
 // version dispatches the virtual call exactly like the original, and the guard's literal copy compiles as is.
 #include "generated/default/nfsmw_pch.h"
@@ -257,6 +266,79 @@ struct Reales {
   }
 };
 
+#if defined(__SWITCH2__)
+inline int64_t AhoraNs();
+struct EtapasMedidas {
+  uint64_t ns[kIndirecta + 1]{};
+  uint64_t llamadas[kIndirecta + 1]{};
+  uint64_t ns_total = 0;
+  uint64_t muestras = 0;
+};
+thread_local EtapasMedidas g_etapas;
+thread_local bool g_midiendo_etapas = false;
+thread_local nfsmw::perfil_cpu::Etapa g_etapas_cpu[kIndirecta + 1];
+thread_local nfsmw::perfil_cpu::Destinos<32> g_destinos_cpu;
+thread_local uint64_t g_manejador_etapas_cpu = 0;
+thread_local uint64_t g_muestras_etapas_cpu = 0;
+
+struct RealesMedidos {
+  static void Llamar(PPCContext& ctx, uint8_t* base, uint32_t que) {
+    const int64_t antes = AhoraNs();
+    Reales::Llamar(ctx, base, que);
+    g_etapas.ns[que] += uint64_t(AhoraNs() - antes);
+    ++g_etapas.llamadas[que];
+  }
+  static void Indirecta(PPCContext& ctx, uint8_t* base, uint32_t destino) {
+    const int64_t antes = AhoraNs();
+    Reales::Indirecta(ctx, base, destino);
+    g_etapas.ns[kIndirecta] += uint64_t(AhoraNs() - antes);
+    ++g_etapas.llamadas[kIndirecta];
+  }
+};
+
+struct RealesCpuMedidos {
+  template <typename F>
+  static void Medir(uint32_t que, F llamada) {
+    const int64_t referencia = nfsmw::hilos::CpuHiloUs(g_manejador_etapas_cpu);
+    const int64_t inicio = nfsmw::hilos::CpuHiloUs(g_manejador_etapas_cpu);
+    llamada();
+    const int64_t fin = nfsmw::hilos::CpuHiloUs(g_manejador_etapas_cpu);
+    g_etapas_cpu[que].Agregar(referencia, inicio, fin);
+  }
+  static void Llamar(PPCContext& ctx, uint8_t* base, uint32_t que) {
+    Medir(que, [&] {
+      if (que == kVistaD60) {
+        const bool anterior = nfsmw::perfil_subetapas::activa;
+        const uint64_t manejador_anterior = nfsmw::perfil_subetapas::manejador;
+        nfsmw::perfil_subetapas::manejador = g_manejador_etapas_cpu;
+        nfsmw::perfil_subetapas::activa = true;
+        Reales::Llamar(ctx, base, que);
+        nfsmw::perfil_subetapas::activa = anterior;
+        nfsmw::perfil_subetapas::manejador = manejador_anterior;
+      } else {
+        Reales::Llamar(ctx, base, que);
+      }
+    });
+  }
+  static void Indirecta(PPCContext& ctx, uint8_t* base, uint32_t destino) {
+    const bool anterior = nfsmw::perfil_subetapas::virtual_activa;
+    const uint64_t manejador_anterior = nfsmw::perfil_subetapas::manejador;
+    if (destino == 0x8244F7E8) {
+      nfsmw::perfil_subetapas::manejador = g_manejador_etapas_cpu;
+      nfsmw::perfil_subetapas::virtual_activa = true;
+    }
+    const int64_t referencia = nfsmw::hilos::CpuHiloUs(g_manejador_etapas_cpu);
+    const int64_t inicio = nfsmw::hilos::CpuHiloUs(g_manejador_etapas_cpu);
+    Reales::Indirecta(ctx, base, destino);
+    const int64_t fin = nfsmw::hilos::CpuHiloUs(g_manejador_etapas_cpu);
+    nfsmw::perfil_subetapas::virtual_activa = anterior;
+    nfsmw::perfil_subetapas::manejador = manejador_anterior;
+    g_etapas_cpu[kIndirecta].Agregar(referencia, inicio, fin);
+    g_destinos_cpu.Agregar(destino, referencia, inicio, fin);
+  }
+};
+#endif
+
 // ---------------------------------------------------------------------------------------------------------------
 // The whole sub_82452730, with 8245_2690 and 8244_ED58 inlined. L = Reales (real calls) or Grabador (the
 // guard, dry run). Returns the path (kCamino*).
@@ -279,9 +361,19 @@ uint32_t Nativa(PPCContext& ctx, uint8_t* base) {
   const uint64_t r31 = ctx.r3.u64;  // mr r31,r3: the object
   const uint64_t r30 = ctx.r4.u64;  // mr r30,r4: la vista
   const uint32_t obj = uint32_t(r31);
-  const uint64_t a0 = L32(base, obj + 0);   // lwz r11,0(r31): A
-  const uint64_t x0 = L32(base, obj + 24);  // lwz r10,24(r31)
-  const uint64_t e0 = L32(base, obj + 12);  // lwz r3,12(r31): E
+#if defined(__SWITCH2__)
+  const FoldedGuestObject objeto(obj);
+  const auto leer_objeto = [&](uint32_t offset) {
+    uint32_t valor;
+    std::memcpy(&valor, base + objeto.Offset(offset), sizeof(valor));
+    return __builtin_bswap32(valor);
+  };
+#else
+  const auto leer_objeto = [&](uint32_t offset) { return L32(base, obj + offset); };
+#endif
+  const uint64_t a0 = leer_objeto(0);   // lwz r11,0(r31): A
+  const uint64_t x0 = leer_objeto(24);  // lwz r10,24(r31)
+  const uint64_t e0 = leer_objeto(12);  // lwz r3,12(r31): E
   const uint64_t r9a = L32(base, uint32_t(e0) + 24);  // lwz r9,24(r3)
   {
     // The hints issue when [E+24] arrives, since it is needed right away: if they issued earlier (or at the
@@ -306,7 +398,7 @@ uint32_t Nativa(PPCContext& ctx, uint8_t* base) {
     r11 = 0;                 // li r11,0
   } else {
     camino |= kCaminoBanderas;
-    const uint64_t banderas = L32(base, obj + 8);  // lwz r11,8(r31)
+    const uint64_t banderas = leer_objeto(8);  // lwz r11,8(r31)
     r8 = uint32_t(banderas) & 0x400u;              // rlwinm r8,r11,0,21,21
     if (r8 != 0) {                                 // bne loc_82452788
       r11 = 1;
@@ -342,19 +434,19 @@ uint32_t Nativa(PPCContext& ctx, uint8_t* base) {
     r1 = ctx.r1.u64;
   }
   // --- loc_824527C8: the nine arguments of 8245_3E20 / 8245_3D60 ---
-  const uint64_t p = L32(base, obj + 4);          // lwz r8,4(r31): P
+  const uint64_t p = leer_objeto(4);          // lwz r8,4(r31): P
   Anticipar(base, uint32_t(p));                   // the game's dcbt r0,r8 (only [P+0] is read)
   const uint64_t vista5 = L8(base, uint32_t(r30) + 5);  // lbz r7,5(r30)
-  const uint64_t r11b = L32(base, obj + 28);      // lwz r11,28(r31)
+  const uint64_t r11b = leer_objeto(28);      // lwz r11,28(r31)
   ctx.r8.u64 = r30;                               // mr r8,r30
   ctx.r5.u64 = r31 + 32;                          // addi r5,r31,32
   ctx.r11.u64 = r11b;
-  ctx.r10.u64 = L32(base, obj + 20);              // lwz r10,20(r31)
-  ctx.r9.u64 = L32(base, obj + 16);               // lwz r9,16(r31)
-  ctx.r7.u64 = L32(base, obj + 24);               // lwz r7,24(r31)
-  ctx.r6.u64 = L32(base, obj + 8);                // lwz r6,8(r31)
-  ctx.r4.u64 = L32(base, obj + 0);                // lwz r4,0(r31)
-  ctx.r3.u64 = L32(base, obj + 12);               // lwz r3,12(r31)
+  ctx.r10.u64 = leer_objeto(20);              // lwz r10,20(r31)
+  ctx.r9.u64 = leer_objeto(16);               // lwz r9,16(r31)
+  ctx.r7.u64 = leer_objeto(24);               // lwz r7,24(r31)
+  ctx.r6.u64 = leer_objeto(8);                // lwz r6,8(r31)
+  ctx.r4.u64 = leer_objeto(0);                // lwz r4,0(r31)
+  ctx.r3.u64 = leer_objeto(12);               // lwz r3,12(r31)
   E32(base, uint32_t(r1) + 84u, uint32_t(r11b));  // stw r11,84(r1)
   ctx.r1.u64 = r1;
   if (uint32_t(vista5) != 0) {  // cmplwi cr6,r7,0; beq loc_8245280C
@@ -368,8 +460,8 @@ uint32_t Nativa(PPCContext& ctx, uint8_t* base) {
   r1 = ctx.r1.u64;
 
   // --- loc_82452814 ---
-  const uint64_t p2 = L32(base, obj + 4);          // lwz r10,4(r31)
-  const uint64_t a = L32(base, obj + 0);           // lwz r3,0(r31)
+  const uint64_t p2 = leer_objeto(4);          // lwz r10,4(r31)
+  const uint64_t a = leer_objeto(0);           // lwz r3,0(r31)
   const uint64_t m = L32(base, uint32_t(p2));      // lwz r4,0(r10): M
   // (new hints) [M+24] and the IB that starts at M+32, read by SetIndices and by the return of 8245_2690.
   Anticipar(base, uint32_t(m) + 24u);
@@ -446,10 +538,10 @@ uint32_t Nativa(PPCContext& ctx, uint8_t* base) {
 
   // ===== Back in sub_82452730 =====
   {
-    const uint64_t r9b = L32(base, obj + 0);         // lwz r9,0(r31)
+    const uint64_t r9b = leer_objeto(0);         // lwz r9,0(r31)
     const uint64_t r8b = 1431633920;                 // lis r8,21845
     const uint64_t r4b = ctx.r3.u64;                 // mr r4,r3
-    const uint64_t r3b = L32(base, obj + 12);        // lwz r3,12(r31)
+    const uint64_t r3b = leer_objeto(12);        // lwz r3,12(r31)
     const uint64_t r7b = r8b | 21846;                // ori r7,r8,21846
     uint64_t r11c = L16(base, uint32_t(r9b) + 40);   // lhz r11,40(r9)
     r11c = uint64_t((int64_t(int32_t(uint32_t(r11c))) * int64_t(int32_t(uint32_t(r7b)))) >> 32);  // mulhw r11,r11,r7
@@ -891,7 +983,14 @@ constexpr uint64_t kComprobaciones = 20000;   // glue: first calls checked
 constexpr uint64_t kMinimoRaro = 2000;        // and the first ones of each rare path
 constexpr uint64_t kVentanaRaros = 1000000;   // (while within these calls: afterwards, 1 in every kPeriodo)
 constexpr uint64_t kPeriodo = 4096;           // afterwards, 1 in every kPeriodo (power of 2)
-constexpr uint64_t kMedidaOriginal = 64;      // 1 in 64 runs the original, timed (power of 2)
+#if defined(__SWITCH2__)
+// Keep the verification cadence unchanged while reducing profiling overhead on Switch 2.
+constexpr uint64_t kMedidaOriginal = 256;
+constexpr uint64_t kMedidaNativa = 64;
+#else
+constexpr uint64_t kMedidaOriginal = 64;
+constexpr uint64_t kMedidaNativa = 16;
+#endif
 // Loop: each check walks the whole list twice in a dry run (~0.5 us per draw: ~1 ms for the large list),
 // so only a few at the start and then very rarely (1 in 4096: one every ~5 s, ~0.2 ms/s).
 constexpr uint64_t kComprobacionesBucle = 500;
@@ -951,18 +1050,112 @@ inline bool Activo() {
 }
 
 void Informe() {
+#if defined(__SWITCH2__)
+  if (g_midiendo_etapas) {
+    return;
+  }
+#endif
   const int64_t ahora = AhoraNs() / 1000000;
   const int64_t siguiente = g_siguiente_ms.load(std::memory_order_relaxed);
   if (ahora < siguiente) {
     return;
   }
   g_siguiente_ms.store(ahora + 10000, std::memory_order_relaxed);
+#if defined(__SWITCH2__)
+  thread_local nfsmw::perfil_cpu::Ventana cpu;
+  const auto muestra_cpu = cpu.Actualizar(AhoraNs(), nfsmw::hilos::CpuHiloUs(nfsmw::hilos::ManejadorHiloActual()));
+  if (muestra_cpu.estado == nfsmw::perfil_cpu::Estado::kDisponible) {
+    NFSMW_INFORME_DIFERIDO("[perfil switch2] hilo que ejecuta pegamento: CPU {:.1f} ms/s ({:.1f}% de un nucleo), "
+                           "ventana {:.2f} s",
+                           muestra_cpu.ms_cpu_por_segundo, muestra_cpu.ms_cpu_por_segundo / 10.0, muestra_cpu.segundos);
+  } else if (muestra_cpu.estado == nfsmw::perfil_cpu::Estado::kNoDisponible) {
+    NFSMW_INFORME_DIFERIDO("[perfil switch2] CPU del hilo que ejecuta pegamento no disponible");
+  }
+#endif
   if (siguiente == 0) {
     REXLOG_INFO("[pegamento] pegamento de dibujo (sub_82452730) y su bucle (sub_82454B50) {}",
                 Activo() ? "en nativo (build 186): empiezan comprobando contra la copia literal de la original"
                          : "por la original (nfsmw_pegamento_nativo = false)");
     return;
   }
+#if defined(__SWITCH2__)
+  if (g_etapas.muestras) {
+    constexpr const char* nombres[] = {"estado", "vista E20", "vista D60", "flujos", "indices",
+                                      "efecto", "dibujar", "segundo", "virtual"};
+    std::string detalle;
+    for (uint32_t i = 0; i <= kIndirecta; ++i) {
+      detalle += fmt::format(" {} {:.3f} us/pegamento ({} llamadas)", nombres[i],
+                             double(g_etapas.ns[i]) / double(g_etapas.muestras) / 1000.0, g_etapas.llamadas[i]);
+    }
+    NFSMW_INFORME_DIFERIDO("[perfil switch2] etapas de pegamento: {} muestras, total {:.3f} us/pegamento; "
+                           "tiempos de pared inclusivos, incluyen esperas y costes de medicion;{}",
+                           g_etapas.muestras, double(g_etapas.ns_total) / double(g_etapas.muestras) / 1000.0, detalle);
+    g_etapas = {};
+  }
+  if (g_muestras_etapas_cpu) {
+    const uint64_t intentos_d60 = g_etapas_cpu[kVistaD60].muestras + g_etapas_cpu[kVistaD60].fallos;
+    constexpr const char* nombres[] = {"estado", "vista E20", "vista D60", "flujos", "indices",
+                                       "efecto", "dibujar", "segundo", "virtual"};
+    std::string detalle;
+    for (uint32_t i = 0; i <= kIndirecta; ++i) {
+      const auto& etapa = g_etapas_cpu[i];
+      if (etapa.muestras) {
+        detalle += fmt::format(" {} {:.3f} us/llamada (referencia {:.3f}, {} muestras, {} fallos)",
+                               nombres[i], double(etapa.cpu_us) / double(etapa.muestras),
+                               double(etapa.referencia_us) / double(etapa.muestras), etapa.muestras,
+                               etapa.fallos);
+      } else if (etapa.fallos) {
+        detalle += fmt::format(" {} CPU no disponible ({} fallos)", nombres[i], etapa.fallos);
+      }
+      g_etapas_cpu[i] = {};
+    }
+    NFSMW_INFORME_DIFERIDO("[perfil switch2] CPU inclusiva por etapa: {} pegamentos muestreados en este hilo; "
+                           "incluye llamadas anidadas y coste de medicion; referencia = dos lecturas consecutivas;{}",
+                           g_muestras_etapas_cpu, detalle);
+    std::string subetapas;
+    constexpr const char* nombres_sub[] = {"824513F0", "82453768", "82452F40", "824531C0", "82453450",
+                                           "virtual"};
+    for (unsigned i = 0; i < nfsmw::perfil_subetapas::kEtapas; ++i) {
+      auto& etapa = nfsmw::perfil_subetapas::etapas[i];
+      subetapas += fmt::format(" {}: {} muestras, {} fallos, {} us CPU, {} us referencia;",
+                               nombres_sub[i], etapa.muestras, etapa.fallos, etapa.cpu_us, etapa.referencia_us);
+      etapa = {};
+    }
+    NFSMW_INFORME_DIFERIDO("[perfil switch2] subetapas D60 USA, inclusivas, este hilo; "
+                           "{} visitas instrumentadas / {} intentos D60;{}",
+                           nfsmw::perfil_subetapas::visitas, intentos_d60, subetapas);
+    nfsmw::perfil_subetapas::visitas = 0;
+    std::string destinos;
+    uint64_t intentos_virtual = 0;
+    for (unsigned i = 0; i < g_destinos_cpu.usados; ++i) {
+      const auto& entrada = g_destinos_cpu.entradas[i];
+      if (entrada.destino == 0x8244F7E8) {
+        intentos_virtual = entrada.etapa.muestras + entrada.etapa.fallos;
+      }
+      destinos += fmt::format(" {:08X}: {} muestras, {} fallos, {} us CPU, {} us referencia;",
+                              entrada.destino, entrada.etapa.muestras, entrada.etapa.fallos,
+                              entrada.etapa.cpu_us, entrada.etapa.referencia_us);
+    }
+    NFSMW_INFORME_DIFERIDO("[perfil switch2] destinos virtuales, inclusivos, este hilo; {} descartados;{}",
+                           g_destinos_cpu.descartados, destinos);
+    constexpr const char* nombres_virtual[] = {"F6B0", "F718", "F72C", "F748", "F760", "F784", "F798",
+                                               "F7AC", "F7C0", "F7DC", "F7F4", "F808", "estado", "efecto", "draw"};
+    std::string llamadas_virtual;
+    for (unsigned i = 0; i < nfsmw::perfil_subetapas::kEtapasVirtual; ++i) {
+      auto& etapa = nfsmw::perfil_subetapas::etapas_virtual[i];
+      llamadas_virtual += fmt::format(" {}: {} muestras, {} fallos, {} us CPU, {} us referencia;",
+                                      nombres_virtual[i], etapa.muestras, etapa.fallos, etapa.cpu_us,
+                                      etapa.referencia_us);
+      etapa = {};
+    }
+    NFSMW_INFORME_DIFERIDO("[perfil switch2] subetapas virtual 8244F680 USA, inclusivas, este hilo; "
+                           "{} visitas instrumentadas / {} intentos;{}",
+                           nfsmw::perfil_subetapas::visitas_virtual, intentos_virtual, llamadas_virtual);
+    nfsmw::perfil_subetapas::visitas_virtual = 0;
+    g_destinos_cpu = {};
+    g_muestras_etapas_cpu = 0;
+  }
+#endif
   // The glue
   uint64_t por_camino[kCaminos] = {};
   uint64_t nativas = 0;
@@ -1306,9 +1499,11 @@ uint32_t Predecir(const PPCContext& ctx, uint8_t* base, uint32_t pendientes) {
 void Pegamento(PPCContext& ctx, uint8_t* base) {
   const uint64_t n = g_llamadas.load(std::memory_order_relaxed) + 1;
   g_llamadas.store(n, std::memory_order_relaxed);
+#if !defined(__SWITCH2__) || defined(NFSMW_SWITCH2_DIAGNOSTICS)
   if ((n & (kPeriodo - 1)) == 0) [[unlikely]] {
     Informe();
   }
+#endif
   if (!Activo() || g_apagado.load(std::memory_order_relaxed)) [[unlikely]] {
     Sumar(g_originales[kPorApagada], uint64_t(1));
     __imp__sub_82452730(ctx, base);
@@ -1327,6 +1522,7 @@ void Pegamento(PPCContext& ctx, uint8_t* base) {
       return;
     }
   }
+#if !defined(__SWITCH2__) || defined(NFSMW_SWITCH2_DIAGNOSTICS)
   if ((n & (kMedidaOriginal - 1)) == kMedidaOriginal / 2) [[unlikely]] {
     const int64_t t0 = AhoraNs();
     __imp__sub_82452730(ctx, base);
@@ -1335,7 +1531,30 @@ void Pegamento(PPCContext& ctx, uint8_t* base) {
     Sumar(g_originales[kPorMedida], uint64_t(1));
     return;
   }
-  if ((n & 15) == 8) [[unlikely]] {
+#endif
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  if (!g_midiendo_etapas && Toca(n, 12, 17)) [[unlikely]] {
+    g_midiendo_etapas = true;
+    g_manejador_etapas_cpu = nfsmw::hilos::ManejadorHiloActual();
+    const uint32_t c = Nativa<RealesCpuMedidos>(ctx, base);
+    ++g_muestras_etapas_cpu;
+    g_midiendo_etapas = false;
+    Sumar(g_por_combinacion[c], uint64_t(1));
+    return;
+  }
+  if (!g_midiendo_etapas && Toca(n, 10, 5)) [[unlikely]] {
+    g_midiendo_etapas = true;
+    const int64_t t0 = AhoraNs();
+    const uint32_t c = Nativa<RealesMedidos>(ctx, base);
+    g_etapas.ns_total += uint64_t(AhoraNs() - t0);
+    ++g_etapas.muestras;
+    g_midiendo_etapas = false;
+    Sumar(g_por_combinacion[c], uint64_t(1));
+    return;
+  }
+#endif
+#if !defined(__SWITCH2__) || defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  if ((n & (kMedidaNativa - 1)) == 8) [[unlikely]] {
     const int64_t t0 = AhoraNs();
     const uint32_t c = Nativa<Reales>(ctx, base);
     Sumar(g_ns_nativa, uint64_t(AhoraNs() - t0));
@@ -1343,6 +1562,7 @@ void Pegamento(PPCContext& ctx, uint8_t* base) {
     Sumar(g_por_combinacion[c], uint64_t(1));
     return;
   }
+#endif
   Sumar(g_por_combinacion[Nativa<Reales>(ctx, base)], uint64_t(1));
 }
 
@@ -1358,6 +1578,7 @@ void Bucle(PPCContext& ctx, uint8_t* base) {
     ComprobarBucle(ctx, base);
     return;
   }
+#if !defined(__SWITCH2__) || defined(NFSMW_SWITCH2_DIAGNOSTICS)
   if (Toca(n, kBitsMedidaOriginalBucle, 16)) [[unlikely]] {
     const uint32_t cuenta = uint32_t(L64(base, ctx.r4.u32));  // the list count (the original reads it the same way)
     const int64_t t0 = AhoraNs();
@@ -1376,6 +1597,7 @@ void Bucle(PPCContext& ctx, uint8_t* base) {
     Sumar(g_dibujos_bucle, uint64_t(d));
     return;
   }
+#endif
   const uint32_t d = NativaBucle<Reales>(ctx, base);
   Sumar(g_nativas_bucle, uint64_t(1));
   Sumar(g_dibujos_bucle, uint64_t(d));

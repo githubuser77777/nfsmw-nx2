@@ -77,6 +77,7 @@ elseif(REXGLUE_PLATFORM_SWITCH)
         guest_memory_switch.cpp       # core: window, mirrors and protection by unmapping
         mapped_memory_switch.cpp      # no file mmap: read into RAM with a cap
         memory_switch.cpp             # rex::memory API on top of the core
+        memory_switch2.cpp            # Switch 2 experimental folded arena
         seh_switch.cpp                # SEH interface; faults inside SEH scopes are fatal
         switch_libc_supplement.c      # pread, pwrite and friends: newlib declares them, libnx does not
     )

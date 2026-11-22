@@ -164,7 +164,11 @@ endif()
 if(REXGLUE_PLATFORM_SWITCH)
     # Horizon on aarch64. Code detects it through __SWITCH__ (rex/platform.h);
     # CMAKE_SYSTEM_NAME is Generic, so neither WIN32 nor UNIX is set.
-    set(REX_PLATFORM "switch-arm64")
+    if(REXGLUE_PLATFORM_SWITCH2)
+        set(REX_PLATFORM "switch2-arm64")
+    else()
+        set(REX_PLATFORM "switch-arm64")
+    endif()
     # Headers Horizon lacks (netinet/ip.h, endian.h), ahead of everything.
     include_directories(BEFORE SYSTEM ${CMAKE_CURRENT_SOURCE_DIR}/switch_compat)
 elseif(WIN32)
@@ -204,9 +208,15 @@ add_compile_definitions(REXGLUE_BUILD_CONFIG="$<CONFIG>")
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/rex_pch.cmake)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/rex_version.cmake)
-rex_resolve_version(REXGLUE_FULL_VERSION
-    FLOOR_MAJOR ${PROJECT_VERSION_MAJOR}
-    FLOOR_MINOR ${PROJECT_VERSION_MINOR})
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
+    rex_resolve_version(REXGLUE_FULL_VERSION
+        FLOOR_MAJOR ${PROJECT_VERSION_MAJOR}
+        FLOOR_MINOR ${PROJECT_VERSION_MINOR}
+        SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+else()
+    # This SDK is vendored; the parent game's tags are not SDK versions.
+    set(REXGLUE_FULL_VERSION "${PROJECT_VERSION}")
+endif()
 
 # Strip the -id trailer (if any) for the numeric-only version.
 string(REGEX REPLACE "-.*$" "" REXGLUE_NUMERIC_VERSION "${REXGLUE_FULL_VERSION}")

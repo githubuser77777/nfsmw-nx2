@@ -9,6 +9,8 @@
 
 #include <rex/ui/vulkan/device.h>
 
+#include "nfsmw_informe_silencioso.h"
+
 #include <array>
 #include <atomic>
 #include <cstdint>
@@ -347,6 +349,10 @@ extern std::atomic<uint32_t> g_sincronizaciones_anillo;
 void InformeDiferido(std::string linea);
 
 // Like REXLOG_INFO, but the report thread does the SD write (InformeDiferido).
+#if defined(__SWITCH2__) && !defined(NFSMW_SWITCH2_DIAGNOSTICS)
+#define NFSMW_INFORME_ANILLO(...) ::nfsmw::nativo::DescartarInforme(__VA_ARGS__)
+#else
 #define NFSMW_INFORME_ANILLO(...) ::nfsmw::nativo::InformeDiferido(fmt::format(__VA_ARGS__))
+#endif
 
 }  // namespace nfsmw::nativo

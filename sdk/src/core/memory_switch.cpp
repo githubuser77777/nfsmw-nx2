@@ -34,10 +34,13 @@
 
 #include <rex/platform.h>
 
-#if REX_PLATFORM_SWITCH
+#if REX_PLATFORM_SWITCH && !defined(__SWITCH2__)
 
 #include <cstring>
 #include <filesystem>
+#if defined(__SWITCH2__)
+#include <cstdio>
+#endif
 
 #include <malloc.h>
 
@@ -151,7 +154,14 @@ void* AllocFixed(void* base_address, size_t length, AllocationType allocation_ty
     return nullptr;
   }
 
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  if (offset == 0) std::fprintf(stderr, "[switch2] zero page: guest commit begin\n");
+#endif
   if (!RexGmCommit(offset, length, ToGm(access))) {
+#if defined(__SWITCH2__)
+    std::fprintf(stderr, "[switch2] guest commit failed at 0x%zx, length 0x%zx, result 0x%08x\n",
+                 offset, length, unsigned(RexGmLastResult()));
+#endif
     // This is the message that fires if Horizon's mapping ceiling is hit, so it
     // carries everything needed to tell which of the three ran out.
     // The real ceiling is the process limit on mappable memory
@@ -165,16 +175,26 @@ void* AllocFixed(void* base_address, size_t length, AllocationType allocation_ty
                  RexGmCommittedBytes() >> 20, RexGmMappedBytes() >> 20);
     return nullptr;
   }
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  if (offset == 0) std::fprintf(stderr, "[switch2] zero page: guest commit ready; protect begin\n");
+#endif
 
   // The core always commits memory as accessible and keeps any existing protection;
   // the requested permission is applied on top. In the common case (read-write on
   // an unprotected range) this returns immediately.
   if (!RexGmProtect(static_cast<uint8_t*>(base_address), length, ToGm(access), nullptr)) {
+#if defined(__SWITCH2__)
+    std::fprintf(stderr, "[switch2] guest protection failed at 0x%zx, length 0x%zx, result 0x%08x\n",
+                 offset, length, unsigned(RexGmLastResult()));
+#endif
     REXLOG_ERROR("AllocFixed: confirmado pero no se pudo aplicar el permiso en 0x{:016X} "
                  "(fallo 0x{:08X})",
                  reinterpret_cast<uintptr_t>(base_address), RexGmLastResult());
     return nullptr;
   }
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  if (offset == 0) std::fprintf(stderr, "[switch2] zero page: protect ready\n");
+#endif
   return base_address;
 }
 

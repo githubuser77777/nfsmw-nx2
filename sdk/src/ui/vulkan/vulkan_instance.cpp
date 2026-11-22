@@ -9,6 +9,7 @@
  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
  */
 
+#include <cstdio>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -385,8 +386,14 @@ std::unique_ptr<VulkanInstance> VulkanInstance::Create(const bool with_surface,
   instance_create_info.ppEnabledLayerNames = enabled_layers.data();
   instance_create_info.enabledExtensionCount = uint32_t(enabled_extensions.size());
   instance_create_info.ppEnabledExtensionNames = enabled_extensions.data();
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] vkCreateInstance begin\n");
+#endif
   VkResult instance_create_result =
       ifn.vkCreateInstance(&instance_create_info, nullptr, &vulkan_instance->instance_);
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] vkCreateInstance result %d\n", int(instance_create_result));
+#endif
 
   if (instance_create_result == VK_ERROR_LAYER_NOT_PRESENT ||
       instance_create_result == VK_ERROR_EXTENSION_NOT_PRESENT) {
@@ -570,16 +577,30 @@ void VulkanInstance::EnumeratePhysicalDevices(
   physical_devices_out.clear();
   while (true) {
     uint32_t physical_device_count = 0;
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+    std::fprintf(stderr, "[switch2] vkEnumeratePhysicalDevices count begin\n");
+#endif
     const VkResult get_physical_device_count_result =
         functions_.vkEnumeratePhysicalDevices(instance_, &physical_device_count, nullptr);
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+    std::fprintf(stderr, "[switch2] vkEnumeratePhysicalDevices count result %d, count %u\n",
+                 int(get_physical_device_count_result), physical_device_count);
+#endif
     if ((get_physical_device_count_result != VK_SUCCESS &&
          get_physical_device_count_result != VK_INCOMPLETE) ||
         !physical_device_count) {
       return;
     }
     physical_devices_out.resize(physical_device_count);
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+    std::fprintf(stderr, "[switch2] vkEnumeratePhysicalDevices list begin\n");
+#endif
     const VkResult get_physical_devices_result = functions_.vkEnumeratePhysicalDevices(
         instance_, &physical_device_count, physical_devices_out.data());
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+    std::fprintf(stderr, "[switch2] vkEnumeratePhysicalDevices list result %d, count %u\n",
+                 int(get_physical_devices_result), physical_device_count);
+#endif
     if (get_physical_devices_result == VK_INCOMPLETE) {
       continue;
     }

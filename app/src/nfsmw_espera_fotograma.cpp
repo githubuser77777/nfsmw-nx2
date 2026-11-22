@@ -84,7 +84,12 @@ REXCVAR_DEFINE_BOOL(nfsmw_ejecutor_sin_vueltas, true, "NFSMW",
                     "24/09 (build 169): el Main XThread espera las ordenes del preparador DURMIENDO en pausas cortas "
                     "en vez de dar vueltas sin parar en sub_82441CC8 (12,6 % de un nucleo en la 162). false = como "
                     "antes");
-REXCVAR_DEFINE_INT32(nfsmw_ejecutor_pausa_us, 100, "NFSMW",
+#if defined(__SWITCH2__)
+constexpr int32_t kPausaEjecutorDefecto = 50;
+#else
+constexpr int32_t kPausaEjecutorDefecto = 100;
+#endif
+REXCVAR_DEFINE_INT32(nfsmw_ejecutor_pausa_us, kPausaEjecutorDefecto, "NFSMW",
                      "Pausa del ejecutor mientras espera ordenes (us). Menos = responde antes y gasta mas CPU");
 REXCVAR_DEFINE_INT32(nfsmw_ejecutor_espera_max_us, 2000, "NFSMW",
                      "Como mucho esto (us) por espera del ejecutor; luego el bucle del juego vuelve a mirar");

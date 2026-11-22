@@ -18,6 +18,7 @@
 #include <vector>
 
 #include <rex/memory/utils.h>
+#include <rex/memory/guest_address.h>
 #include <rex/ppc/func.h>  // PPCFunc type
 #include <rex/system/mmio_handler.h>
 #include <rex/thread/mutex.h>
@@ -55,7 +56,11 @@ namespace rex::memory {
 /// Same raw arithmetic as recompiled code; no Memory* or heap lookup needed.
 template <typename T = u8*>
 inline T GuestPtr(u8* base, u32 guest_address) noexcept {
+#if defined(__SWITCH2__)
+  return reinterpret_cast<T>(base + FoldGuestAddress(guest_address));
+#else
   return reinterpret_cast<T>(base + guest_address + detail::PhysicalHostOffset(guest_address));
+#endif
 }
 
 class Memory;
@@ -153,7 +158,14 @@ class BaseHeap {
 
   template <typename T = uint8_t*>
   inline T TranslateRelative(size_t relative_address) const {
+#if defined(__SWITCH2__)
+    if (heap_type_ == HeapType::kGuestPhysical && heap_base_ == 0) {
+      return reinterpret_cast<T>(membase_ + relative_address);
+    }
+    return reinterpret_cast<T>(membase_ + FoldGuestAddress(uint32_t(heap_base_ + relative_address)));
+#else
     return reinterpret_cast<T>(membase_ + heap_base_ + host_address_offset_ + relative_address);
+#endif
   }
 
   // Disposes and decommits all memory and clears the page table.
@@ -385,12 +397,16 @@ class Memory {
   // Note that the contents at the specified host address are big-endian.
   template <typename T = uint8_t*>
   inline T TranslateVirtual(uint32_t guest_address) const {
+#if defined(__SWITCH2__)
+    return GuestPtr<T>(virtual_membase_, guest_address);
+#else
     uint8_t* host_address = virtual_membase_ + guest_address;
     const auto heap = LookupHeap(guest_address);
     if (heap) {
       host_address += heap->host_address_offset();
     }
     return reinterpret_cast<T>(host_address);
+#endif
   }
 
   // Base address of physical memory in the host address space.

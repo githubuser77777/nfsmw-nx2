@@ -28,6 +28,10 @@
 #include <rex/system/xthread.h>
 #include <rex/thread.h>
 
+#if defined(__SWITCH2__)
+#include <cstdio>
+#endif
+
 REXCVAR_DEFINE_STRING(game_data_root, "", "Runtime", "Override game data path");
 REXCVAR_DEFINE_STRING(user_data_root, "", "Runtime", "Override user data path");
 REXCVAR_DEFINE_STRING(update_data_root, "", "Runtime", "Override update data path");
@@ -96,12 +100,19 @@ X_STATUS Runtime::Setup(RuntimeConfig config) {
   instance_ = this;
 
   auto fail = [this](X_STATUS status, std::string_view reason) {
+#if defined(__SWITCH2__)
+    std::fprintf(stderr, "[switch2] runtime setup failed: %.*s (0x%08x)\n",
+                 int(reason.size()), reason.data(), unsigned(status));
+#endif
     REXSYS_ERROR("Runtime::Setup failed: {}", reason);
     Shutdown();
     return status;
   };
 
   // Initialize SEH exception support for hardware exception handling
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] exception setup begin\n");
+#endif
   rex::initialize_seh();
 
   // Initialize clock
@@ -115,10 +126,19 @@ X_STATUS Runtime::Setup(RuntimeConfig config) {
   tool_mode_ = config.tool_mode;
 
   // Create memory system first
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] guest memory initialization begin\n");
+#endif
   memory_ = std::make_unique<memory::Memory>();
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] guest memory object ready\n");
+#endif
   if (!memory_->Initialize()) {
     return fail(X_STATUS_UNSUCCESSFUL, "memory init failed");
   }
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] guest memory initialization ready\n");
+#endif
 
   export_resolver_ = std::make_unique<runtime::ExportResolver>();
 
@@ -129,10 +149,16 @@ X_STATUS Runtime::Setup(RuntimeConfig config) {
   file_system_ = std::make_unique<rex::filesystem::VirtualFileSystem>();
 
   // Create kernel state - this sets the global singleton
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] kernel state creation begin\n");
+#endif
   kernel_state_ = std::make_unique<system::KernelState>(this);
 
   // Initialize input from injected config
   if (config.input_factory) {
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+    std::fprintf(stderr, "[switch2] input setup begin\n");
+#endif
     input_system_ = config.input_factory(tool_mode_);
     if (input_system_) {
       X_STATUS input_status = input_system_->Setup();
@@ -148,11 +174,17 @@ X_STATUS Runtime::Setup(RuntimeConfig config) {
 
   // HLE kernel modules and apps.
   if (config.kernel_init) {
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+    std::fprintf(stderr, "[switch2] kernel initialization begin\n");
+#endif
     config.kernel_init(this, kernel_state_.get());
   }
 
   // Initialize the APU (Audio Processing Unit) from injected config
   if (config.audio_factory) {
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+    std::fprintf(stderr, "[switch2] audio setup begin\n");
+#endif
     audio_system_ = config.audio_factory(function_dispatcher_.get());
     if (audio_system_) {
       X_STATUS audio_status = audio_system_->Setup(kernel_state_.get());
@@ -167,6 +199,9 @@ X_STATUS Runtime::Setup(RuntimeConfig config) {
   }
 
   // Set up VFS: game_data_root as game:/d:, update_data_root as update:
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] VFS setup begin\n");
+#endif
   if (!SetupVfs()) {
     return fail(X_STATUS_UNSUCCESSFUL, "VFS setup failed");
   }
@@ -180,6 +215,9 @@ X_STATUS Runtime::Setup(RuntimeConfig config) {
 
   // Initialize GPU from injected config
   if (config.graphics) {
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+    std::fprintf(stderr, "[switch2] guest GPU setup begin\n");
+#endif
     graphics_system_ = std::move(config.graphics);
     bool with_presentation = (app_context_ != nullptr);
     X_STATUS gpu_status = graphics_system_->Setup(function_dispatcher_.get(), kernel_state_.get(),

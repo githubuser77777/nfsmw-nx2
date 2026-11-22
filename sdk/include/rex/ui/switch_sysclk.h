@@ -11,7 +11,7 @@
 
 namespace rex::ui::switch_sysclk {
 
-#if REX_PLATFORM_SWITCH
+#if REX_PLATFORM_SWITCH && !defined(__SWITCH2__)
 
 // Once per second. "efectivo" is the mode the game obeys (Reverse-NX's if set) and "real" the
 // hardware's: something is done whenever they differ, in either direction, which is exactly what

@@ -16,8 +16,8 @@
 
 namespace nfsmw::reflejo_demanda {
 
-// Guest physical address where the game resolves the reflection. It is the same in every measured run
-// (PC and console); nfsmw_recortes_carrera.cpp checks it in every run before skipping any frame.
+// Guest physical address observed for the PAL edition. The edition generator substitutes the USA
+// address; nfsmw_recortes_carrera.cpp checks it before and while skipping frames.
 constexpr uint32_t kDireccion = 0x07C5A000;
 
 // From the native renderer (ring thread).

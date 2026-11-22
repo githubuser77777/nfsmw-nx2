@@ -35,6 +35,9 @@
 #include "nfsmw_nativo_destinos.h"
 #include "nfsmw_nativo_ganchos.h"
 #include "nfsmw_nativo_shaders.h"
+#if defined(__SWITCH2__)
+#include "nfsmw_perfil_cpu.h"
+#endif
 
 #include <rex/cvar.h>
 #include <rex/filesystem.h>
@@ -67,6 +70,7 @@
 #include <bit>
 #include <chrono>
 #include <condition_variable>
+#include <cstdio>
 #include <cstring>
 #include <deque>
 #include <fstream>
@@ -79,6 +83,13 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+
+#if defined(__SWITCH2__)
+namespace nfsmw::hilos {
+uint64_t ManejadorHiloActual();
+int64_t CpuHiloUs(uint64_t manejador);
+}
+#endif
 
 /*
  * xxHash reads with memcpy (XXH_FORCE_MEMORY_ACCESS 0). With the method it picks for GCC (1) it reads through
@@ -299,6 +310,9 @@ class ColaInformes {
 }  // namespace
 
 void InformeDiferido(std::string linea) {
+#if defined(__SWITCH2__) && !defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  (void)linea;
+#else
   static const bool diferir = REXCVAR_GET(nfsmw_nativo_informes_diferidos);
   if (!diferir) {
     REXLOG_INFO("{}", linea);
@@ -308,6 +322,7 @@ void InformeDiferido(std::string linea) {
   if (!cola.Encolar(std::move(linea))) {
     REXLOG_INFO("{}", linea);  // no report thread: as before (Encolar has not moved it)
   }
+#endif
 }
 
 }  // namespace nfsmw::nativo
@@ -342,7 +357,8 @@ REXCVAR_DEFINE_INT32(nfsmw_nativo_anillo_prioridad, 0x2D, "NFSMW",
  */
 REXCVAR_DEFINE_INT32(nfsmw_nativo_anillo_nucleo, 1, "NFSMW",
                      "Switch: nucleo preferido del hilo del anillo (-1 = el de por defecto, que es el "
-                     "mismo que el del hilo del juego; 0-2 = uno concreto). No es exclusivo: la "
+                     "mismo que el del hilo del juego; otros valores = nucleo permitido por el kernel, "
+                     "0-2 en Switch 1). No es exclusivo: la "
                      "mascara no se toca, asi que el kernel puede moverlo igual");
 /*
  * The real pin.
@@ -711,6 +727,9 @@ class SistemaGraficoNativo final : public rex::system::IGraphicsSystem {
   ~SistemaGraficoNativo() override { Shutdown(); }
 
   X_STATUS SetupPresentation(rex::ui::WindowedAppContext* app_context) override {
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+    std::fprintf(stderr, "[switch2] SetupPresentation begin\n");
+#endif
     if (presenter_) {
       return X_STATUS_SUCCESS;
     }
@@ -720,12 +739,18 @@ class SistemaGraficoNativo final : public rex::system::IGraphicsSystem {
       // enables if they are requested before it is created.
       rex::cvar::SetFlagByName("vulkan_native_shader_features", "true");
       provider_ = rex::ui::vulkan::VulkanProvider::Create(true, true);
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+      std::fprintf(stderr, "[switch2] Vulkan provider %s\n", provider_ ? "ready" : "failed");
+#endif
       if (!provider_) {
         REXLOG_ERROR("[nativo] No se pudo crear el dispositivo Vulkan");
         return X_STATUS_UNSUCCESSFUL;
       }
     }
     auto crear = [this]() { presenter_ = provider_->CreatePresenter(); };
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+    std::fprintf(stderr, "[switch2] Vulkan presenter begin\n");
+#endif
     if (app_context_) {
       app_context_->CallInUIThreadSynchronous(crear);
     } else {
@@ -735,12 +760,18 @@ class SistemaGraficoNativo final : public rex::system::IGraphicsSystem {
       REXLOG_ERROR("[nativo] No se pudo crear el presentador");
       return X_STATUS_UNSUCCESSFUL;
     }
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+    std::fprintf(stderr, "[switch2] Vulkan presenter ready\n");
+#endif
     REXLOG_INFO("[nativo] Sistema grafico nativo (C1): presentador del SDK, sin emulacion del Xenos");
     return X_STATUS_SUCCESS;
   }
 
   X_STATUS SetupGuestGpu(rex::runtime::FunctionDispatcher* dispatcher,
                          rex::system::KernelState* kernel_state) override {
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+    std::fprintf(stderr, "[switch2] SetupGuestGpu begin\n");
+#endif
     dispatcher_ = dispatcher;
     kernel_state_ = kernel_state;
     memory_ = dispatcher->memory();
@@ -1036,10 +1067,9 @@ class SistemaGraficoNativo final : public rex::system::IGraphicsSystem {
     }
     if (avisos_oclusion_ < 8) {  // was 48; these lines are long and the ring thread writes them
       ++avisos_oclusion_;
-      const uint8_t* base_virtual = memory_->virtual_membase();
-      const auto leer_be = [base_virtual](uint32_t d) {
+      const auto leer_be = [this](uint32_t d) {
         uint32_t v = 0;
-        std::memcpy(&v, base_virtual + d, sizeof(v));
+        std::memcpy(&v, memory_->TranslateVirtual(d), sizeof(v));
         return __builtin_bswap32(v);
       };
       const uint32_t renderizador = leer_be(0x82A2D1AC);
@@ -1657,7 +1687,19 @@ class SistemaGraficoNativo final : public rex::system::IGraphicsSystem {
       const int nucleo_antes = RexSwitchCurrentCore();
       const int32_t nucleo = REXCVAR_GET(nfsmw_nativo_anillo_nucleo);
       const bool exclusivo = nucleo >= 0 && REXCVAR_GET(nfsmw_nativo_anillo_nucleo_exclusivo);
-      if (nucleo >= -1 && nucleo <= 2) {
+#if defined(__SWITCH2__)
+      cpu_set_t mascara{};
+      const int error_mascara = pthread_getaffinity_np(pthread_self(), sizeof(mascara), &mascara);
+      if (error_mascara == 0) {
+        REXLOG_INFO("[nativo] hilo del anillo: mascara de nucleos permitidos {:#x}", mascara.bits);
+      } else {
+        REXLOG_WARN("[nativo] hilo del anillo: no se pudo leer la mascara de nucleos ({})", error_mascara);
+      }
+      constexpr int kNucleoMaximo = 63;
+#else
+      constexpr int kNucleoMaximo = 2;
+#endif
+      if (nucleo >= -1 && nucleo <= kNucleoMaximo) {
         const bool puesto = exclusivo ? RexSwitchPinCurrentThreadToCore(int(nucleo))
                                       : RexSwitchSetCurrentThreadCore(int(nucleo));
         REXLOG_INFO("[nativo] hilo del anillo: nucleo {} {} ({}); estaba en el {} y ahora corre en "
@@ -1665,9 +1707,15 @@ class SistemaGraficoNativo final : public rex::system::IGraphicsSystem {
                     nucleo, exclusivo ? "EXCLUSIVO (mascara reducida)" : "preferido",
                     puesto ? "aceptado" : "RECHAZADO por el kernel", nucleo_antes,
                     RexSwitchCurrentCore());
+      } else {
+        REXLOG_WARN("[nativo] hilo del anillo: nucleo {} fuera de rango; afinidad sin cambiar", nucleo);
       }
       nucleo_anillo_ = RexSwitchCurrentCore();
     }
+#endif
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+    cpu_anillo_.Actualizar(std::chrono::duration_cast<std::chrono::nanoseconds>(Reloj::now().time_since_epoch()).count(),
+                           nfsmw::hilos::CpuHiloUs(nfsmw::hilos::ManejadorHiloActual()));
 #endif
     uint32_t leido = 0;
     uint32_t generacion = 0;
@@ -3729,6 +3777,19 @@ class SistemaGraficoNativo final : public rex::system::IGraphicsSystem {
     // WAIT_REG_MEM waits and the wait for the GPU when presenting.
     const double segundos = std::chrono::duration<double>(ahora - ultimo_tiempo_informe_).count();
     ultimo_tiempo_informe_ = ahora;
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+    if (!forzar) {
+      const auto cpu = cpu_anillo_.Actualizar(
+          std::chrono::duration_cast<std::chrono::nanoseconds>(Reloj::now().time_since_epoch()).count(),
+          nfsmw::hilos::CpuHiloUs(nfsmw::hilos::ManejadorHiloActual()));
+      if (cpu.estado == nfsmw::perfil_cpu::Estado::kDisponible) {
+        NFSMW_INFORME_ANILLO("[perfil switch2] hilo anillo: CPU {:.1f} ms/s ({:.1f}% de un nucleo), ventana {:.2f} s",
+                             cpu.ms_cpu_por_segundo, cpu.ms_cpu_por_segundo / 10.0, cpu.segundos);
+      } else if (cpu.estado == nfsmw::perfil_cpu::Estado::kNoDisponible) {
+        NFSMW_INFORME_ANILLO("[perfil switch2] CPU del hilo anillo no disponible");
+      }
+    }
+#endif
     if (segundos > 0.0) {
       NFSMW_INFORME_SEGUN(diferir_informe,
           "[nativo] tiempos: anillo {:.1f} ms/s; dibujos {:.1f} us/dibujo ({}); copias {:.1f} us/copia; "
@@ -4847,6 +4908,9 @@ class SistemaGraficoNativo final : public rex::system::IGraphicsSystem {
   double escala_real_ns_ = 0.0;
   double escala_marcas_ns_ = 0.0;
   Reloj::time_point ultimo_tiempo_informe_{};
+#if defined(__SWITCH2__)
+  nfsmw::perfil_cpu::Ventana cpu_anillo_;
+#endif
   Reloj::time_point ultimo_informe_{};
   // Trace of one frame (nfsmw_nativo_diag_fotograma_s).
   Reloj::time_point inicio_sistema_{};

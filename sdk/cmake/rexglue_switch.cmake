@@ -13,6 +13,12 @@ include_guard(GLOBAL)
 
 set(REXGLUE_SWITCH_NVK_SDK "" CACHE PATH
     "portlibs/switch directory of the Mesa Horizon SDK (static NVK driver)")
+if(REXGLUE_PLATFORM_SWITCH2)
+    set(REXGLUE_SWITCH_NVK_SDK "${DEVKITPRO}/portlibs/switch2")
+    set(_REX_SWITCH_ROOT "${DEVKITPRO}/libounce")
+else()
+    set(_REX_SWITCH_ROOT "${DEVKITPRO}/libnx")
+endif()
 if(NOT EXISTS "${REXGLUE_SWITCH_NVK_SDK}/lib/libvulkan.a")
     message(FATAL_ERROR
         "REXGLUE_SWITCH_NVK_SDK must point at <mesa-...-horizon-sdk>/opt/devkitpro/portlibs/switch "
@@ -30,11 +36,13 @@ if(NOT TARGET rex::nvk)
     target_link_directories(rexglue_switch_nvk INTERFACE
         "${REXGLUE_SWITCH_NVK_SDK}/lib"
         "${DEVKITPRO}/portlibs/switch/lib"
-        "${DEVKITPRO}/libnx/lib")
-    target_link_libraries(rexglue_switch_nvk INTERFACE
-        vulkan expat zstd z nx
-        vulkan expat zstd z nx
-        stdc++ m)
+        "${_REX_SWITCH_ROOT}/lib")
+    if(REXGLUE_PLATFORM_SWITCH2)
+        target_link_libraries(rexglue_switch_nvk INTERFACE vulkan nx stdc++ m)
+    else()
+        target_link_libraries(rexglue_switch_nvk INTERFACE
+            vulkan expat zstd z nx vulkan expat zstd z nx stdc++ m)
+    endif()
     target_link_options(rexglue_switch_nvk INTERFACE -pthread)
 endif()
 
@@ -50,13 +58,16 @@ endif()
 if(NOT TARGET rexglue_switch_startup)
     add_library(rexglue_switch_startup OBJECT
         "${CMAKE_CURRENT_LIST_DIR}/../src/ui/runtime_switch.cpp"
-        "${CMAKE_CURRENT_LIST_DIR}/../src/ui/switch_elf_stubs.c"
         "${CMAKE_CURRENT_LIST_DIR}/../src/ui/switch_crash_hooks.c"
         "${CMAKE_CURRENT_LIST_DIR}/../src/ui/switch_perf.cpp"
         # FPS and resolution for the console overlays (SaltyNX) and Reverse-NX reading.
         "${CMAKE_CURRENT_LIST_DIR}/../src/ui/switch_saltynx.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/../src/ui/switch_sysclk.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/../src/ui/switch_apm.cpp")
+    if(NOT REXGLUE_PLATFORM_SWITCH2)
+        target_sources(rexglue_switch_startup PRIVATE
+            "${CMAKE_CURRENT_LIST_DIR}/../src/ui/switch_elf_stubs.c")
+    endif()
     # switch_perf.cpp registers every thread (the profiler needs their handles)
     # by wrapping libnx's threadCreate/threadClose, which pthread goes through.
     # It also counts the libnx calls that cost IPC or walk memory (fences,
@@ -64,10 +75,13 @@ if(NOT TARGET rexglue_switch_startup)
     # queue and svcSleepThread) and the time the calling threads spend inside.
     target_link_options(rexglue_switch_startup INTERFACE
         "LINKER:--wrap=threadCreate,--wrap=threadClose"
-        "LINKER:--wrap=nvFenceWait,--wrap=nvGpuChannelKickoff,--wrap=nvMapCreate"
-        "LINKER:--wrap=nvAddressSpaceAllocFixed,--wrap=nvioctlNvhostAsGpu_MapBufferEx"
-        "LINKER:--wrap=armDCacheClean,--wrap=nwindowQueueBuffer,--wrap=bqDequeueBuffer"
         "LINKER:--wrap=svcSleepThread")
+    if(NOT REXGLUE_PLATFORM_SWITCH2)
+        target_link_options(rexglue_switch_startup INTERFACE
+            "LINKER:--wrap=nvFenceWait,--wrap=nvGpuChannelKickoff,--wrap=nvMapCreate"
+            "LINKER:--wrap=nvAddressSpaceAllocFixed,--wrap=nvioctlNvhostAsGpu_MapBufferEx"
+            "LINKER:--wrap=armDCacheClean,--wrap=nwindowQueueBuffer,--wrap=bqDequeueBuffer")
+    endif()
 endif()
 
 function(rexglue_switch_configure_target target_name)
@@ -130,7 +144,11 @@ function(rexglue_switch_add_nro target_name)
         endif()
     endif()
     if(NOT ARG_ICON)
-        set(ARG_ICON "${DEVKITPRO}/libnx/default_icon.jpg")
+        if(REXGLUE_PLATFORM_SWITCH2)
+            set(ARG_ICON "${DEVKITPRO}/libounce/default_icon.jpg")
+        else()
+            set(ARG_ICON "${DEVKITPRO}/libnx/default_icon.jpg")
+        endif()
     endif()
 
     find_program(REXGLUE_NACPTOOL nacptool HINTS "${DEVKITPRO}/tools/bin" NO_DEFAULT_PATH REQUIRED)

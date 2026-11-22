@@ -55,6 +55,7 @@
 #include <cstring>
 
 #include <rex/platform.h>
+#include <rex/memory/guest_address.h>
 
 namespace nfsmw::nativo::microcodigo {
 
@@ -100,6 +101,11 @@ inline uint32_t RanuraDe(uint32_t fisica) {
 // A guest word read from a hook (on Win32 the area from 0xE0000000 is 0x1000 higher, like
 // REX_PHYS_HOST_OFFSET in nfsmw_pch.h).
 inline uint32_t LeerInvitado32(const uint8_t* base, uint32_t direccion) {
+#if defined(__SWITCH2__)
+  uint32_t valor;
+  std::memcpy(&valor, base + rex::memory::FoldGuestAddress(direccion), 4);
+  return __builtin_bswap32(valor);
+#else
 #if REX_PLATFORM_WIN32
   const uint32_t desplazamiento = direccion >= 0xE0000000u ? 0x1000u : 0u;
 #else
@@ -108,6 +114,7 @@ inline uint32_t LeerInvitado32(const uint8_t* base, uint32_t direccion) {
   uint32_t valor;
   std::memcpy(&valor, base + direccion + desplazamiento, 4);
   return __builtin_bswap32(valor);
+#endif
 }
 
 // Count without atomic read-modify-write (A57 without LSE). Almost always written by a single thread; if two

@@ -75,7 +75,12 @@ void Nativo(uint8_t* base, int32_t n, uint32_t origen, uint32_t destino, double 
   }
   const uint64_t bytes = uint64_t(n) * 4;
   // Below 0xE0000000 the host address is base + address on both platforms: it advances 4 bytes at a time.
-  if (uint64_t(origen) + bytes <= 0xE0000000ull && uint64_t(destino) + bytes <= 0xE0000000ull) {
+  if (uint64_t(origen) + bytes <= 0xE0000000ull && uint64_t(destino) + bytes <= 0xE0000000ull
+#if defined(__SWITCH2__)
+      && (origen >> 24) == ((uint64_t(origen) + bytes - 1) >> 24)
+      && (destino >> 24) == ((uint64_t(destino) + bytes - 1) >> 24)
+#endif
+  ) {
     const uint8_t* po = Dir(base, origen);
     uint8_t* pd = Dir(base, destino);
     for (int32_t i = 0; i < n; ++i) {

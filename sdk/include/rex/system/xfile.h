@@ -19,6 +19,7 @@
 #include <rex/filesystem/file.h>
 #include <rex/system/xevent.h>
 #include <rex/system/xio.h>
+#include <rex/system/xmemory.h>
 #include <rex/system/xiocompletion.h>
 #include <rex/system/xobject.h>
 #include <rex/system/xtypes.h>
@@ -42,7 +43,7 @@ class X_FILE_DIRECTORY_INFORMATION {
   char file_name[1];               // 0x40
 
   void Write(uint8_t* base, uint32_t p) {
-    uint8_t* dst = base + p;
+    uint8_t* dst = rex::memory::GuestPtr(base, p);
     uint8_t* src = reinterpret_cast<uint8_t*>(this);
     X_FILE_DIRECTORY_INFORMATION* right;
     do {

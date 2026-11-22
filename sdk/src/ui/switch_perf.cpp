@@ -68,6 +68,7 @@ int RexGmModoProteccion(void);
 Result __real_threadCreate(Thread* t, ThreadFunc entry, void* arg, void* stack_mem,
                            size_t stack_sz, int prio, int cpuid);
 Result __real_threadClose(Thread* t);
+#if !defined(__SWITCH2__)
 Result __real_nvFenceWait(NvFence* f, s32 timeout_us);
 Result __real_nvGpuChannelKickoff(NvGpuChannel* c);
 Result __real_nvMapCreate(NvMap* m, void* cpu_addr, u32 size, u32 align, NvKind kind, bool is_cpu_cacheable);
@@ -78,6 +79,7 @@ void __real_armDCacheClean(void* addr, size_t size);
 Result __real_nwindowQueueBuffer(NWindow* nw, s32 slot, const NvMultiFence* fence);
 Result __real_bqDequeueBuffer(Binder* b, bool async, u32 width, u32 height, s32 format, u32 usage, s32* buf,
                               NvMultiFence* fence);
+#endif
 void __real_svcSleepThread(s64 nano);
 }
 
@@ -795,6 +797,12 @@ void ProfilerMain(void*) {
   TicOverlay overlay;
   const u64 inicio = armGetSystemTick();
   overlay.Arrancar(inicio);
+#if defined(__SWITCH2__) && !defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  while (true) {
+    __real_svcSleepThread(kPassiveIntervalNs);
+    overlay.Paso(armGetSystemTick(), tick_freq, true);
+  }
+#else
   const u64 calentamiento = (kStartDelayNs / 1000000ULL) * tick_freq / 1000ULL;
   while (armGetSystemTick() - inicio < calentamiento) {
     __real_svcSleepThread(kPassiveIntervalNs);
@@ -890,6 +898,7 @@ void ProfilerMain(void*) {
       report_start = armGetSystemTick();
     }
   }
+#endif
 }
 
 /* Priority 102: after switch_crash_hooks.c, before the SDK. */
@@ -931,6 +940,7 @@ Result __wrap_threadClose(Thread* t) {
   return __real_threadClose(t);
 }
 
+#if !defined(__SWITCH2__)
 /* libnx calls that cost IPC or walk memory. See g_llamadas. */
 Result __wrap_nvFenceWait(NvFence* f, s32 timeout_us) {
   const u64 desde = armGetSystemTick();
@@ -1008,6 +1018,7 @@ Result __wrap_bqDequeueBuffer(Binder* b, bool async, u32 width, u32 height, s32 
   Anotar(kDequeueBuffer, desde);
   return rc;
 }
+#endif
 
 void __wrap_svcSleepThread(s64 nano) {
   const u64 desde = armGetSystemTick();
@@ -1035,7 +1046,11 @@ void RexSwitchPerfResolution(unsigned ancho, unsigned alto) {
 
 // See g_intervalo_swap, next to the nwindowQueueBuffer wrapper. 0 = touch nothing (the normal case).
 void RexSwitchPerfIntervaloSwap(unsigned vblanks) {
+#if defined(__SWITCH2__)
+  if (vblanks) std::fprintf(stderr, "[perf] Switch 1 swap interval override is unavailable on Switch 2\n");
+#else
   g_intervalo_swap.store(vblanks, std::memory_order_relaxed);
+#endif
 }
 
 void RexSwitchPerfCount(unsigned id) {

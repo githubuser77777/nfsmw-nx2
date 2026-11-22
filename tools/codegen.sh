@@ -1,5 +1,5 @@
 #!/bin/bash
-# Runs the code generator on one edition tree and the two steps the build depends on.
+# Runs the code generator on one edition tree and the subsequent source transforms.
 #
 #   REXGLUE=out/host/rexglue tools/codegen.sh app
 #   REXGLUE=out/host/rexglue tools/codegen.sh app_usa app_usa/enganchadas.txt app_usa/tabla.tsv
@@ -27,5 +27,11 @@ if [ -n "${3:-}" ]; then
   "$PY" tools/copia_literal.py "$APP/generated/default" "$APP/src/copias_literales" --tabla "$RAIZ/$3"
 else
   "$PY" tools/copia_literal.py "$APP/generated/default" "$APP/src/copias_literales"
+fi
+echo "== Switch 2 effect-state address translation"
+if [ -n "${3:-}" ]; then
+  "$PY" tools/optimizar_estado.py "$APP/generated/default" --tabla "$RAIZ/$3" --opcional
+else
+  "$PY" tools/optimizar_estado.py "$APP/generated/default"
 fi
 echo "done"

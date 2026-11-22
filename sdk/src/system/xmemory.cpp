@@ -13,6 +13,10 @@
 #include <cstring>
 #include <utility>
 
+#if defined(__SWITCH2__)
+#include <cstdio>
+#endif
+
 #if REX_PLATFORM_MAC
 #include <sys/mman.h>
 #endif
@@ -138,17 +142,35 @@ bool Memory::Initialize() {
   // uncommitted (so it shouldn't expand page file).
   // Round up to allocation granularity to accommodate platforms with large pages.
   const size_t mapping_size =
+#if defined(__SWITCH2__)
+      static_cast<size_t>(rex::memory::kFoldedGuestArenaSize);
+#else
       rex::round_up(static_cast<size_t>(0x120000000ull) + system_allocation_granularity_,
                     static_cast<size_t>(system_allocation_granularity_));
+#endif
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] guest window reservation begin, size 0x%zx\n", mapping_size);
+#endif
   mapping_ = rex::memory::CreateFileMappingHandle(file_name_, mapping_size,
                                                   rex::memory::PageAccess::kReadWrite, false);
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] guest window reservation returned\n");
+#endif
   if (mapping_ == rex::memory::kFileMappingHandleInvalid) {
     REXSYS_ERROR("Unable to reserve the 4gb guest address space.");
+#if !defined(__SWITCH2__)
     assert_always();
+#endif
     return false;
   }
 
-#if REX_PLATFORM_MAC
+#if defined(__SWITCH2__)
+  mapping_base_ = static_cast<uint8_t*>(rex::memory::GetFileMappingBase(mapping_));
+  if (!mapping_base_) {
+    REXSYS_ERROR("Unable to allocate the Switch 2 folded guest arena.");
+    return false;
+  }
+#elif REX_PLATFORM_MAC
   // On macOS, reserve a contiguous host range first, then carve guest views
   // into it with MAP_SHARED|MAP_FIXED so all views share the same backing fd.
   if (MapViewsMac()) {
@@ -163,11 +185,18 @@ bool Memory::Initialize() {
   // views inside it, like macOS but without mmap. Trying 1<<32, 1<<33... as Linux
   // does would always fail.
   mapping_base_ = static_cast<uint8_t*>(rex::memory::GetFileMappingBase(mapping_));
+#if defined(__SWITCH2__)
+  std::fprintf(stderr, "[switch2] guest view registration begin, base %p\n",
+               static_cast<void*>(mapping_base_));
+#endif
   if (!mapping_base_ || MapViews(mapping_base_)) {
     REXSYS_ERROR("Unable to map the guest views into the Switch guest window.");
     assert_always();
     return false;
   }
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] guest view registration ready\n");
+#endif
 #else
   // Attempt to create our views. This may fail at the first address
   // we pick, so try a few times.
@@ -186,13 +215,20 @@ bool Memory::Initialize() {
   }
 #endif
   virtual_membase_ = mapping_base_;
+#if defined(__SWITCH2__)
+  physical_membase_ = mapping_base_ + 0xA0000000ull;
+#else
   physical_membase_ = mapping_base_ + 0x100000000ull;
+#endif
 
   REXSYS_INFO("Guest memory arena mapped: virtual base 0x{:016X}, physical base 0x{:016X}",
               reinterpret_cast<uintptr_t>(virtual_membase_),
               reinterpret_cast<uintptr_t>(physical_membase_));
 
   // Prepare virtual heaps.
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] guest heap tables begin\n");
+#endif
   heaps_.v00000000.Initialize(this, virtual_membase_, memory::HeapType::kGuestVirtual, 0x00000000,
                               0x40000000, 4096);
   heaps_.v40000000.Initialize(this, virtual_membase_, memory::HeapType::kGuestVirtual, 0x40000000,
@@ -212,20 +248,32 @@ bool Memory::Initialize() {
   heaps_.vE0000000.Initialize(this, virtual_membase_, memory::HeapType::kGuestPhysical, 0xE0000000,
                               0x1FD00000, 4096, &heaps_.physical);
 
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] guest heap tables ready; zero page allocation begin\n");
+#endif
   // Protect the first and last 64kb of memory.
   heaps_.v00000000.AllocFixed(0x00000000, 0x10000, 0x10000,
                               memory::kMemoryAllocationReserve | memory::kMemoryAllocationCommit,
                               !REXCVAR_GET(protect_zero)
                                   ? memory::kMemoryProtectRead | memory::kMemoryProtectWrite
                                   : memory::kMemoryProtectNoAccess);
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] zero page allocation returned; physical tail reservation begin\n");
+#endif
   heaps_.physical.AllocFixed(0x1FFF0000, 0x10000, 0x10000, memory::kMemoryAllocationReserve,
                              memory::kMemoryProtectNoAccess);
 
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] physical tail reservation returned; GPU writeback allocation begin\n");
+#endif
   // GPU writeback.
   // 0xC... is physical, 0x7F... is virtual. We may need to overlay these.
   heaps_.vC0000000.AllocFixed(0xC0000000, 0x01000000, 32,
                               memory::kMemoryAllocationReserve | memory::kMemoryAllocationCommit,
                               memory::kMemoryProtectRead | memory::kMemoryProtectWrite);
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] GPU writeback allocation returned\n");
+#endif
 
   // Pre-commit the physical memory range so the GPU can access it
   // without page faults. Reference: xenia-canary 5f5be0668.
@@ -247,6 +295,9 @@ bool Memory::Initialize() {
 #endif
 
   // Install MMIO handler for physical address translation and MMIO ranges
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] MMIO handler install begin\n");
+#endif
   mmio_handler_ = runtime::MMIOHandler::Install(
       virtual_membase_, physical_membase_, physical_membase_ + 0x1FFFFFFF, HostToGuestVirtualThunk,
       this, AccessViolationCallbackThunk, this);
@@ -256,6 +307,9 @@ bool Memory::Initialize() {
     return false;
   }
   REXSYS_DEBUG("Installed MMIO handler for physical address translation");
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] MMIO handler ready; initial heap allocations begin\n");
+#endif
 
   // ?
   uint32_t unk_phys_alloc;
@@ -270,8 +324,14 @@ bool Memory::Initialize() {
                          memory::kMemoryProtectRead | memory::kMemoryProtectWrite, false,
                          &unknown_xex_range);
 
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] initial heap allocations returned; first guest write begin\n");
+#endif
   uint32_t value_to_write = rex::byte_swap(uint32_t(0x2a6e3f38));
   std::memcpy(TranslateVirtual(0x80000000 + 0x1C), &value_to_write, sizeof(uint32_t));
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] first guest write ready\n");
+#endif
 
   return true;
 }
@@ -706,12 +766,23 @@ void Memory::UnregisterPhysicalMemoryInvalidationCallback(void* callback_handle)
 void Memory::EnablePhysicalMemoryAccessCallbacks(uint32_t physical_address, uint32_t length,
                                                  bool enable_invalidation_notifications,
                                                  bool enable_data_providers) {
+#if defined(__SWITCH2__)
+  static std::once_flag warned;
+  std::call_once(warned, [] {
+    REXSYS_WARN("Switch 2: physical memory write-watch callbacks are unavailable");
+  });
+  (void)physical_address;
+  (void)length;
+  (void)enable_invalidation_notifications;
+  (void)enable_data_providers;
+#else
   heaps_.vA0000000.EnableAccessCallbacks(physical_address, length,
                                          enable_invalidation_notifications, enable_data_providers);
   heaps_.vC0000000.EnableAccessCallbacks(physical_address, length,
                                          enable_invalidation_notifications, enable_data_providers);
   heaps_.vE0000000.EnableAccessCallbacks(physical_address, length,
                                          enable_invalidation_notifications, enable_data_providers);
+#endif
 }
 
 uint32_t Memory::SystemHeapAlloc(uint32_t size, uint32_t alignment, uint32_t system_heap_flags) {
@@ -1334,6 +1405,10 @@ bool BaseHeap::AllocSystemHeap(uint32_t size, uint32_t alignment, uint32_t alloc
 
 bool BaseHeap::AllocFixed(uint32_t base_address, uint32_t size, uint32_t alignment,
                           uint32_t allocation_type, uint32_t protect) {
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  const bool trace_zero = heap_base_ == 0 && base_address == 0;
+  if (trace_zero) std::fprintf(stderr, "[switch2] zero page: acquiring heap locks\n");
+#endif
   alignment = rex::round_up(alignment, page_size_);
   if (base_address % alignment != 0) {
     if (base_address % page_size_ != 0) {
@@ -1364,6 +1439,9 @@ bool BaseHeap::AllocFixed(uint32_t base_address, uint32_t size, uint32_t alignme
   // AcquireHostPageReconcileLock for why the order matters.
   auto global_lock = AcquireHostPageReconcileLock();
   std::lock_guard<std::recursive_mutex> heap_lock(heap_mutex_);
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  if (trace_zero) std::fprintf(stderr, "[switch2] zero page: heap locks acquired\n");
+#endif
 
   // - If we are reserving the entire range requested must not be already
   //   reserved.
@@ -1395,10 +1473,16 @@ bool BaseHeap::AllocFixed(uint32_t base_address, uint32_t size, uint32_t alignme
     auto alloc_type = (allocation_type & memory::kMemoryAllocationCommit)
                           ? rex::memory::AllocationType::kCommit
                           : rex::memory::AllocationType::kReserve;
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+    if (trace_zero) std::fprintf(stderr, "[switch2] zero page: host allocation begin\n");
+#endif
     void* result =
         rex::memory::AllocFixed(TranslateRelative(start_page_number << page_size_shift_),
                                 page_count << page_size_shift_, alloc_type,
                                 ToHostPageAccess(protect, heap_type_));
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+    if (trace_zero) std::fprintf(stderr, "[switch2] zero page: host allocation returned %p\n", result);
+#endif
     if (!result) {
       REXSYS_ERROR("BaseHeap::AllocFixed failed to alloc range from host");
       return false;
@@ -1421,9 +1505,15 @@ bool BaseHeap::AllocFixed(uint32_t base_address, uint32_t size, uint32_t alignme
     page_entry.state = memory::kMemoryAllocationReserve | allocation_type;
   }
 
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  if (trace_zero) std::fprintf(stderr, "[switch2] zero page: host access sync begin\n");
+#endif
   if (!SyncHostPageAccess(start_page_number, end_page_number)) {
     return false;
   }
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  if (trace_zero) std::fprintf(stderr, "[switch2] zero page: host access sync ready\n");
+#endif
 
   if (allocation_type != memory::kMemoryAllocationReserve && REXCVAR_GET(scribble_heap) &&
       (protect & memory::kMemoryProtectWrite)) {

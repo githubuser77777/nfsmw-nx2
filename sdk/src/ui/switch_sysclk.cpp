@@ -43,7 +43,7 @@
 
 #include "rex/ui/switch_sysclk.h"
 
-#if REX_PLATFORM_SWITCH
+#if REX_PLATFORM_SWITCH && !defined(__SWITCH2__)
 
 #include <switch.h>
 
@@ -410,4 +410,9 @@ extern "C" void RexSwitchRelojesReverseHabilitar(int habilitado) {
   rex::ui::switch_sysclk::Habilitar(habilitado != 0);
 }
 
+#elif defined(__SWITCH2__)
+#include <cstdio>
+extern "C" void RexSwitchRelojesReverseHabilitar(int habilitado) {
+  if (habilitado) std::fprintf(stderr, "[relojes] Switch 1 clock integration is unavailable on Switch 2\n");
+}
 #endif  // REX_PLATFORM_SWITCH

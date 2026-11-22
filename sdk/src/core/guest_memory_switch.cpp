@@ -13,6 +13,9 @@
 #include <atomic>
 #include <mutex>
 #include <vector>
+#if defined(__SWITCH2__)
+#include <cstdio>
+#endif
 
 namespace {
 
@@ -351,14 +354,37 @@ void ReleaseChunk(const Chunk& c) {
 extern "C" {
 
 uint8_t* RexGmInit(size_t size) {
+#if defined(__SWITCH2__)
+    constexpr unsigned required_svcs[] = {0x73, 0x74, 0x75, 0x77, 0x78};
+    for (unsigned svc : required_svcs) {
+        if (!envIsSyscallHinted(svc)) {
+            std::fprintf(stderr,
+                         "[switch2] guest memory unavailable: required privileged syscall "
+                         "0x%02x is not provided by the loader; a Switch 2 guest-memory "
+                         "backend is required\n",
+                         svc);
+            return nullptr;
+        }
+    }
+#if defined(NFSMW_SWITCH2_DIAGNOSTICS)
+    std::fprintf(stderr, "[switch2] guest reservation state begin\n");
+#endif
+#endif
     State& s = S();
     std::lock_guard<std::mutex> lock(s.mutex);
     if (s.base) return s.base;
 
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+    std::fprintf(stderr, "[switch2] virtmem reservation begin\n");
+#endif
     virtmemLock();
     s.base = static_cast<uint8_t*>(virtmemFindAslr(size, kBlockSize));
     if (s.base) s.reservation = virtmemAddReservation(s.base, size);
     virtmemUnlock();
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+    std::fprintf(stderr, "[switch2] virtmem reservation returned, base %p, reservation %p\n",
+                 static_cast<void*>(s.base), static_cast<void*>(s.reservation));
+#endif
 
     if (!s.base || !s.reservation) {
         s.base = nullptr;
@@ -461,6 +487,10 @@ bool RexGmAddView(uint8_t* base, size_t offset, size_t length) {
 }
 
 bool RexGmCommit(size_t offset, size_t length, RexGmAccess access) {
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+    const bool trace_zero = offset == 0;
+    if (trace_zero) std::fprintf(stderr, "[switch2] zero page: acquiring guest memory lock\n");
+#endif
     /*
      * Memory is always committed accessible. Restricting permissions is the job of
      * RexGmProtect, which works on window addresses and not on mapping offsets (and
@@ -476,6 +506,9 @@ bool RexGmCommit(size_t offset, size_t length, RexGmAccess access) {
 
     State& s = S();
     std::lock_guard<std::mutex> lock(s.mutex);
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+    if (trace_zero) std::fprintf(stderr, "[switch2] zero page: guest memory lock acquired\n");
+#endif
     if (!s.base) return false;
 
     const size_t begin = AlignDown(offset, kPageSize);
@@ -498,18 +531,37 @@ bool RexGmCommit(size_t offset, size_t length, RexGmAccess access) {
         const size_t align = (tam >= kBlockSize && (cur & (kBlockSize - 1)) == 0)
                                  ? kBlockSize : kPageSize;
 
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+        if (trace_zero) std::fprintf(stderr, "[switch2] zero page: memalign 0x%zx bytes\n", tam);
+#endif
         void* backing = memalign(align, tam);
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+        if (trace_zero) std::fprintf(stderr, "[switch2] zero page: memalign returned %p\n", backing);
+#endif
         if (!backing) {
             s.last_result = REX_GM_ERR_NOMEM;
             return false;
         }
         memset(backing, 0, tam);
 
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+        if (trace_zero) std::fprintf(stderr, "[switch2] zero page: virtmemFindCodeMemory begin\n");
+#endif
         virtmemLock();
         void* shadow = virtmemFindCodeMemory(tam, align);
-        Result rc = shadow ? svcMapProcessCodeMemory(Proc(), reinterpret_cast<u64>(shadow),
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+        if (trace_zero) std::fprintf(stderr, "[switch2] zero page: code memory %p; process handle begin\n", shadow);
+#endif
+        Handle proc = shadow ? Proc() : 0;
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+        if (trace_zero) std::fprintf(stderr, "[switch2] zero page: process handle 0x%x; code mapping begin\n", unsigned(proc));
+#endif
+        Result rc = shadow ? svcMapProcessCodeMemory(proc, reinterpret_cast<u64>(shadow),
                                                      reinterpret_cast<u64>(backing), tam)
                            : 0;
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+        if (trace_zero) std::fprintf(stderr, "[switch2] zero page: code mapping result 0x%08x\n", unsigned(rc));
+#endif
         virtmemUnlock();
 
         if (!shadow) {
@@ -524,7 +576,13 @@ bool RexGmCommit(size_t offset, size_t length, RexGmAccess access) {
         }
 
         /* The code alias starts without write access; it has to be opened. */
-        rc = svcSetProcessMemoryPermission(Proc(), reinterpret_cast<u64>(shadow), tam, Perm_Rw);
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+        if (trace_zero) std::fprintf(stderr, "[switch2] zero page: code permission begin\n");
+#endif
+        rc = svcSetProcessMemoryPermission(proc, reinterpret_cast<u64>(shadow), tam, Perm_Rw);
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+        if (trace_zero) std::fprintf(stderr, "[switch2] zero page: code permission result 0x%08x\n", unsigned(rc));
+#endif
         if (R_FAILED(rc)) {
             svcUnmapProcessCodeMemory(Proc(), reinterpret_cast<u64>(shadow),
                                       reinterpret_cast<u64>(backing), tam);

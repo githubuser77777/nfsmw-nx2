@@ -37,6 +37,7 @@
 #include <rex/hook.h>
 #include <rex/logging.h>
 #include <rex/platform.h>
+#include <rex/memory/guest_address.h>
 
 #include <atomic>
 #include <chrono>
@@ -123,12 +124,20 @@ inline uint32_t DesplazamientoFisico(uint32_t direccion) {
 
 uint32_t Leer32(const uint8_t* base, uint32_t direccion) {
   uint32_t v = 0;
+#if defined(__SWITCH2__)
+  std::memcpy(&v, base + rex::memory::FoldGuestAddress(direccion), sizeof(v));
+#else
   std::memcpy(&v, base + direccion + DesplazamientoFisico(direccion), sizeof(v));
+#endif
   return __builtin_bswap32(v);
 }
 
 uint8_t Leer8(const uint8_t* base, uint32_t direccion) {
+#if defined(__SWITCH2__)
+  return base[rex::memory::FoldGuestAddress(direccion)];
+#else
   return base[uint64_t(direccion) + DesplazamientoFisico(direccion)];
+#endif
 }
 
 std::atomic<uint64_t> g_vueltas{0};

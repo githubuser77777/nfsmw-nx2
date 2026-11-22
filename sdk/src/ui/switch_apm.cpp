@@ -53,7 +53,7 @@
 
 #include "rex/ui/switch_apm.h"
 
-#if REX_PLATFORM_SWITCH
+#if REX_PLATFORM_SWITCH && !defined(__SWITCH2__)
 
 #include <switch.h>
 
@@ -347,8 +347,15 @@ extern "C" void RexSwitchApmVigilar(void) {
   }
 }
 
-#else   // !REX_PLATFORM_SWITCH
+#else
+#if defined(__SWITCH2__)
+#include <cstdio>
+extern "C" void RexSwitchApmPedirGpuMhz(int mhz) {
+  if (mhz) std::fprintf(stderr, "[apm] Switch 1 clock profiles are unavailable on Switch 2\n");
+}
+#else
 extern "C" void RexSwitchApmPedirGpuMhz(int) {}
+#endif
 extern "C" void RexSwitchApmPermitirRam1600(int) {}
 extern "C" void RexSwitchApmAplicar(void) {}
 extern "C" void RexSwitchApmVigilar(void) {}

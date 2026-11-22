@@ -10,6 +10,7 @@
  */
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <unordered_map>
@@ -74,6 +75,9 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
   // Get supported Vulkan 1.0 properties and features.
 
   VkPhysicalDeviceProperties properties = {};
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] VulkanDevice properties begin\n");
+#endif
   ifn.vkGetPhysicalDeviceProperties(physical_device, &properties);
 
   const uint32_t unclamped_api_version = properties.apiVersion;
@@ -95,6 +99,10 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
 
   VkPhysicalDeviceFeatures supported_features = {};
   ifn.vkGetPhysicalDeviceFeatures(physical_device, &supported_features);
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] VulkanDevice properties and features ready: %s\n",
+               properties.deviceName);
+#endif
 
   if (with_gpu_emulation) {
     if (!supported_features.independentBlend) {
@@ -392,8 +400,14 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
     if (device->extensions_.ext_EXT_extended_dynamic_state3) {
       features_EXT_extended_dynamic_state3.Link(supported_features_2, device_create_info);
     }
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+    std::fprintf(stderr, "[switch2] VulkanDevice extended properties and features begin\n");
+#endif
     ifn.vkGetPhysicalDeviceProperties2(physical_device, &properties_2);
     ifn.vkGetPhysicalDeviceFeatures2(physical_device, &supported_features_2);
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+    std::fprintf(stderr, "[switch2] VulkanDevice extended properties and features ready\n");
+#endif
   }
 
   uint32_t queue_family_count = 0;
@@ -784,8 +798,14 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
 
   // Create the device.
 
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] vkCreateDevice begin\n");
+#endif
   const VkResult device_create_result =
       ifn.vkCreateDevice(physical_device, &device_create_info, nullptr, &device->device_);
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] vkCreateDevice result %d\n", int(device_create_result));
+#endif
   if (device_create_result != VK_SUCCESS) {
     REXLOG_ERROR(
         "Failed to create a Vulkan logical device from the physical device "

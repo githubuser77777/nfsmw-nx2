@@ -160,6 +160,11 @@ endif()
 # argument is no longer needed; it can still be passed to change it.
 rexglue_setup_target(nfsmw GPU_PLUGINS xenos)
 
+if(REXGLUE_PLATFORM_SWITCH2)
+    set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/generated/default/nfsmw_register.cpp"
+        APPEND PROPERTY COMPILE_OPTIONS -O0)
+endif()
+
 # The SDK's FFmpeg (WMV3 decoder) for the cutscenes: nfsmw_video_wmv3.cpp.
 target_link_libraries(nfsmw PRIVATE libavcodec)
 

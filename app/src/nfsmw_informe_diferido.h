@@ -11,9 +11,14 @@
 #include <string>
 
 #include <rex/logging.h>
+#include "nfsmw_informe_silencioso.h"
 
 namespace nfsmw::nativo {
 void InformeDiferido(std::string linea);
 }  // namespace nfsmw::nativo
 
+#if defined(__SWITCH2__) && !defined(NFSMW_SWITCH2_DIAGNOSTICS)
+#define NFSMW_INFORME_DIFERIDO(...) ::nfsmw::nativo::DescartarInforme(__VA_ARGS__)
+#else
 #define NFSMW_INFORME_DIFERIDO(...) ::nfsmw::nativo::InformeDiferido(fmt::format(__VA_ARGS__))
+#endif

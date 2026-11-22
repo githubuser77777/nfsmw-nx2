@@ -11,7 +11,7 @@
 
 namespace rex::ui::switch_saltynx {
 
-#if REX_PLATFORM_SWITCH
+#if REX_PLATFORM_SWITCH && !defined(__SWITCH2__)
 
 // Connects to SaltySD, reserves the block and locates the Reverse-NX one. Without SaltyNX it does
 // nothing. It can be called as many times as needed. Until there is a valid block it keeps trying,

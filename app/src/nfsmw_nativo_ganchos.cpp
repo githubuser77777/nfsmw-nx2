@@ -7,6 +7,7 @@
 #include <rex/cvar.h>
 #include <rex/hook.h>
 #include <rex/logging.h>
+#include <rex/memory/guest_address.h>
 #include "nfsmw_informe_diferido.h"  // deferred reports
 
 #include <atomic>
@@ -46,6 +47,15 @@ REXCVAR_DECLARE(bool, nfsmw_sombras_sin_vegetacion);
 
 namespace nfsmw::nativo {
 namespace {
+
+template <typename T>
+T* PunteroInvitado(T* base, uint32_t direccion) {
+#if defined(__SWITCH2__)
+  return base + rex::memory::FoldGuestAddress(direccion);
+#else
+  return base + direccion;
+#endif
+}
 
 // Where SetVertexShader (sub_8259C2A8) and SetPixelShader (sub_8259BDC0) store the bound shader inside
 // the device object (from the recompiled code).
@@ -202,7 +212,13 @@ const EntradaShader* IdentificarCreacion(const uint8_t* base, uint32_t direccion
   if (!shaders || !direccion || direccion > UINT32_MAX - 24) {
     return nullptr;
   }
-  const uint8_t* p = base + direccion;
+#if defined(__SWITCH2__)
+  if (rex::memory::FoldGuestAddress(direccion + 11) !=
+      rex::memory::FoldGuestAddress(direccion) + 11) {
+    return nullptr;
+  }
+#endif
+  const uint8_t* p = PunteroInvitado(base, direccion);
   if (LeerBE(p) != (vertices ? 0x102A0E01u : 0x102A0E00u)) {
     return nullptr;
   }
@@ -210,6 +226,12 @@ const EntradaShader* IdentificarCreacion(const uint8_t* base, uint32_t direccion
   if (total < 24 || total > 65536 || uint64_t(direccion) + total > (uint64_t(1) << 32)) {
     return nullptr;
   }
+#if defined(__SWITCH2__)
+  if (rex::memory::FoldGuestAddress(uint32_t(direccion + total - 1)) !=
+      rex::memory::FoldGuestAddress(direccion) + total - 1) {
+    return nullptr;
+  }
+#endif
   return shaders->IdentificarContenedor(std::span<const uint8_t>(p, size_t(total)));
 }
 
@@ -259,8 +281,8 @@ void AnotarDibujo(FuncionDibujo funcion, const uint8_t* base, uint32_t dispositi
     return;
   }
   RegistroDibujo registro;
-  registro.vs = LeerBE(base + dispositivo + kDispositivoVs);
-  registro.ps = LeerBE(base + dispositivo + kDispositivoPs);
+  registro.vs = LeerBE(PunteroInvitado(base, dispositivo + kDispositivoVs));
+  registro.ps = LeerBE(PunteroInvitado(base, dispositivo + kDispositivoPs));
   registro.args[0] = r4;
   registro.args[1] = r5;
   registro.args[2] = r6;
@@ -274,7 +296,7 @@ void AnotarDibujo(FuncionDibujo funcion, const uint8_t* base, uint32_t dispositi
     Foto& foto = g_fotos[secuencia % kFotos];
     foto.secuencia.store(0, std::memory_order_release);  // being written
     InstantaneaEspejo& d = foto.datos;
-    const uint8_t* disp = base + dispositivo;
+    const uint8_t* disp = PunteroInvitado(base, dispositivo);
     for (uint32_t g = 0; g < kGruposEspejo; ++g) {
       const uint32_t desp = g_desplazamiento_grupo[g].load(std::memory_order_relaxed);
       d.mascara[g] = desp ? g_mascara_grupo[g].load(std::memory_order_relaxed) : 0;
@@ -792,7 +814,7 @@ uint16_t DecidirVegetacion(FuncionDibujo funcion, uint8_t* base, uint32_t dispos
     InformeVegetacion();
   }
   ++g_i_mirados;
-  const uint8_t* d = base + dispositivo;
+  const uint8_t* d = PunteroInvitado(base, dispositivo);
   uint32_t motivo = 0;
   const bool si = Estructura(d, motivo);
   const uint32_t abiertas = g_consultas_abiertas.load(std::memory_order_relaxed);
@@ -859,7 +881,7 @@ uint16_t DecidirVegetacion(FuncionDibujo funcion, uint8_t* base, uint32_t dispos
   // The whole Draw* is skipped. The only thing it does to the mirror before FlushState: VGT_INDX_OFFSET and
   // its dirty bit (DrawVertices sets it to its start vertex, r5; DrawIndexedVertices to 0). Everything else
   // stays dirty for the next dump, with the same mirror values.
-  uint8_t* espejo = base + dispositivo;
+  uint8_t* espejo = PunteroInvitado(base, dispositivo);
   const uint32_t indice = funcion == FuncionDibujo::kVertices ? r5 : 0u;
   if (LeerBE(espejo + kIndiceBase) != indice) {
     EscribirBE(espejo + kIndiceBase, indice);
@@ -874,7 +896,7 @@ uint16_t DecidirVegetacion(FuncionDibujo funcion, uint8_t* base, uint32_t dispos
 
 void AnotarConsultaD3D(const uint8_t* base, uint32_t consulta, uint32_t banderas) {
   using namespace vegetacion;
-  if (!consulta || LeerBE(base + consulta + 4) != kTipoOclusion) {
+  if (!consulta || LeerBE(PunteroInvitado(base, consulta + 4)) != kTipoOclusion) {
     return;
   }
   const bool empieza = (banderas & 2) != 0;

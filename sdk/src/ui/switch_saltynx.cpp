@@ -22,7 +22,7 @@
 
 #include "rex/ui/switch_saltynx.h"
 
-#if REX_PLATFORM_SWITCH
+#if REX_PLATFORM_SWITCH && !defined(__SWITCH2__)
 
 #include <switch.h>
 
@@ -816,4 +816,9 @@ extern "C" void RexSwitchSaltyNxHabilitar(int habilitado) {
   rex::ui::switch_saltynx::Habilitar(habilitado != 0);
 }
 
+#elif defined(__SWITCH2__)
+#include <cstdio>
+extern "C" void RexSwitchSaltyNxHabilitar(int habilitado) {
+  if (habilitado) std::fprintf(stderr, "[saltynx] Switch 1 overlay integration is unavailable on Switch 2\n");
+}
 #endif  // REX_PLATFORM_SWITCH

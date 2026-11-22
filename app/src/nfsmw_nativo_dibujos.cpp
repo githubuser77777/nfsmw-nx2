@@ -164,7 +164,12 @@ REXCVAR_DEFINE_INT32(nfsmw_nativo_huellas_kb_fotograma, 6144, "NFSMW",
  * Sampled recheck of stable textures. See PrepararTextura and HuellaMuestra.
  * Enabled by default: its guard verifies itself and switches off at the first mismatch.
  */
-REXCVAR_DEFINE_INT32(nfsmw_nativo_huellas_muestreo, 8, "NFSMW",
+#if defined(__SWITCH2__) && !defined(NFSMW_SWITCH2_DIAGNOSTICS)
+constexpr int32_t kMuestreoHuellasPorDefecto = 0;
+#else
+constexpr int32_t kMuestreoHuellasPorDefecto = 8;
+#endif
+REXCVAR_DEFINE_INT32(nfsmw_nativo_huellas_muestreo, kMuestreoHuellasPorDefecto, "NFSMW",
                      "Renderizador nativo (25/09, build 170): las texturas ESTABLES se recomprueban con la huella de "
                      "una muestra (primer y ultimo bloque de 4 KB y 1 de cada 8, base y mips) en vez de con todos sus "
                      "bytes; si la muestra cambia se sigue por el camino completo. N = 1 de cada N recomprobaciones de "
@@ -479,7 +484,12 @@ REXCVAR_DEFINE_INT32(nfsmw_nativo_texturas_huella_hilo_mb, 16, "NFSMW",
  * no decision of the ring: it only counts, and reports every 10 s in the "C3 reutilizar por contenido"
  * line.
  */
-REXCVAR_DEFINE_BOOL(nfsmw_nativo_diag_reutilizar, true, "NFSMW",
+#if defined(__SWITCH2__) && !defined(NFSMW_SWITCH2_DIAGNOSTICS)
+constexpr bool kDiagnosticosPorDefecto = false;
+#else
+constexpr bool kDiagnosticosPorDefecto = true;
+#endif
+REXCVAR_DEFINE_BOOL(nfsmw_nativo_diag_reutilizar, kDiagnosticosPorDefecto, "NFSMW",
                     "Renderizador nativo (26/09, build 186, solo medida): cuenta cuantas texturas nuevas tienen el "
                     "mismo contenido y forma que otra viva de la cache (el juego recarga los packs en otra direccion) "
                     "y cuantas de esas otras llevan mas de 120 fotogramas sin usarse. No cambia nada. false = sin "
@@ -1061,7 +1071,7 @@ REXCVAR_DEFINE_BOOL(nfsmw_nativo_estado_dinamico3, false, "NFSMW",
                     "Renderizador nativo (25/09, build 184): mezcla, ecuacion y mascara de color con vkCmdSet* "
                     "(VK_EXT_extended_dynamic_state3) en vez de en el pipeline. Se comprueba sola. false = en el "
                     "pipeline, como antes");
-REXCVAR_DEFINE_BOOL(nfsmw_nativo_diag_memoria_subida, true, "NFSMW",
+REXCVAR_DEFINE_BOOL(nfsmw_nativo_diag_memoria_subida, kDiagnosticosPorDefecto, "NFSMW",
                     "Renderizador nativo: al crear el bufer de subida mide una vez cuantos MB/s se escriben desde la "
                     "CPU en cada tipo de memoria visible (8 MB) y cuanto cuesta publicarlos")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);

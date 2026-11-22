@@ -146,6 +146,45 @@ mapped (see above). The code is in `sdk/src/core/exception_handler_switch.cpp`.
   limited time, or until another thread wakes it up, and then calls the original function so the game's own checks
   still run. On the PC that brought the two threads down to 25 % and 17 %. The hooks are in
   `app/src/nfsmw_espera_anillo.cpp` and `app/src/nfsmw_espera_fotograma.cpp`.
+- On Switch 2 the command-list polling sleep defaults to 50 µs instead of 100 µs, an experimental
+  latency/CPU tradeoff. `nfsmw_ejecutor_pausa_us = 100` restores the previous interval.
+- Switch 2 builds default to non-diagnostic operation: informational and debug logs, periodic reports,
+  the performance log and draw-stage probes are disabled; warnings, errors and correctness guards remain.
+  Set `NFSMW_SWITCH2_DIAGNOSTICS=ON` in the CMake configuration to build with diagnostic logging and
+  profiling instead. The non-diagnostic build defaults to full texture fingerprints
+  (`nfsmw_nativo_huellas_muestreo = 0`) because sampled fingerprints missed a change in hardware testing.
+- Switch 2 `[perfil switch2]` reports compare kernel CPU time for the draw-glue thread and the renderer
+  ring thread. Each reports its own elapsed window; a failed CPU-time query is reported as unavailable.
+  The draw-glue substage report samples roughly one in 1024 calls and measures inclusive wall time,
+  including waiting and measurement overhead. It is not CPU self-time, and the sampled total includes the
+  displayed stages. These diagnostics do not establish displayed FPS or guarantee a performance improvement.
+- Switch 2 affinity masks are passed to Horizon without truncating them to the Switch 1's four cores.
+  The native renderer logs its current allowed mask; a preferred or exclusive ring core must still be in
+  that mask and accepted by the kernel. A preferred core does not pin the thread, and no new affinity is
+  forced. Different core choices need same-scene hardware measurements; pinning can make performance worse.
+- Switch 2 draw glue caches address translation for the object's nearby fields, falling back to individual
+  translations at mirror boundaries. The normal guard still compares the result with the original guest code.
+- The Switch 2 effect-state setup reuses the folded address of the object's `+28` field. It still performs
+  every original volatile load, including after calls; only address translation is reused. `tools/codegen.sh`
+  reapplies this transform after generation and literal-copy extraction. For an already generated USA tree,
+  run `python tools/optimizar_estado.py app_usa/generated/default --tabla tools/editions/usa/todas.tsv`.
+  This is an experimental optimization; its performance effect requires same-scene hardware comparison.
+- The Switch 2 draw-stage CPU probe samples roughly one in 4096 eligible glue calls without suspending threads.
+  Its per-stage values include nested calls and measurement overhead; consecutive counter reads provide a
+  reference for that overhead. Measurements are aggregated and reported per reporting thread, and failed
+  counter reads are counted rather than treated as zero. They are not function self-time or an FPS measurement.
+- The experimental USA-only D60 substage probe instruments the generated view function. Reapply it after
+  code generation and direct-call rewriting with
+  `python tools/perfil_vista_usa.py app_usa/generated/default` before building. It records five direct calls and
+  the optional indirect call, not the instructions between them; the parent timing includes the extra probes.
+  Virtual draw targets are grouped in a fixed 32-entry table, with excess samples reported as discarded.
+  Both reports are inclusive and thread-local and their measurement overhead can perturb the results.
+- To probe the USA `8244F680` virtual draw implementation's individual nested call sites, also run
+  `python tools/perfil_virtual_usa.py app_usa/generated/default` after code generation and direct-call rewriting.
+  The report gives guest return addresses for indirect calls and separately measures state, effect and draw calls.
+  Visit counts reveal if the generated function was not instrumented. Parent timings include all nested probes.
+  Remove the generated D60 and virtual call-site probes with their respective scripts' `--quitar` option
+  before comparing performance builds.
 - **When a hook reads guest memory, apply the same address offset as the recompiled code.** On the PC build,
   addresses at or above 0xE0000000 are shifted by 0x1000.
 

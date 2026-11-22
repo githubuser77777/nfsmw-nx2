@@ -10,6 +10,7 @@
  */
 
 #include <algorithm>
+#include <cstdio>
 #include <vector>
 
 #include <rex/cvar.h>
@@ -51,8 +52,14 @@ std::unique_ptr<VulkanProvider> VulkanProvider::Create(const bool with_gpu_emula
   provider->vulkan_instance_ =
       VulkanInstance::Create(with_presentation, REXCVAR_GET(vulkan_validation_enabled));
   if (!provider->vulkan_instance_) {
+#if defined(__SWITCH2__)
+    std::fprintf(stderr, "[switch2] Vulkan instance initialization failed\n");
+#endif
     return nullptr;
   }
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] Vulkan instance ready\n");
+#endif
 
   std::vector<VkPhysicalDevice> physical_devices;
   provider->vulkan_instance_->EnumeratePhysicalDevices(physical_devices);
@@ -147,10 +154,16 @@ std::unique_ptr<VulkanProvider> VulkanProvider::Create(const bool with_gpu_emula
   }
 
   if (with_presentation) {
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+    std::fprintf(stderr, "[switch2] Vulkan UI samplers begin\n");
+#endif
     provider->ui_samplers_ = UISamplers::Create(provider->vulkan_device_.get());
     if (!provider->ui_samplers_) {
       return nullptr;
     }
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+    std::fprintf(stderr, "[switch2] Vulkan UI samplers ready\n");
+#endif
   }
 
   return provider;

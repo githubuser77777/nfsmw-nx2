@@ -21,6 +21,7 @@
 import glob
 import json
 import os
+import posixpath
 import re
 import shutil
 import sys
@@ -111,6 +112,7 @@ def cargar_referencia(guardar):
 
 def main():
     edicion, tabla, xex = sys.argv[1:4]
+    xex = xex.replace('\\', '/')
     resto = sys.argv[4:]
     # --parejas <json>: {"parejas": {PAL: other}} fixes functions that emparejar.py could not place (code
     # changed around them), and {"nuevas": {other: file}} places unpaired functions where they do not
@@ -171,6 +173,11 @@ def main():
             nuevo = traducir_texto(texto, seguras, faltan)
             for vieja, nueva in huellas:
                 nuevo = re.sub(vieja, nueva, nuevo, flags=re.IGNORECASE)
+            if edicion == 'usa' and rel == os.path.join('src', 'nfsmw_reflejo_demanda.h'):
+                pal = 'constexpr uint32_t kDireccion = 0x07C5A000;'
+                if nuevo.count(pal) != 1:
+                    raise SystemExit('nfsmw_reflejo_demanda.h: reflection address not found')
+                nuevo = nuevo.replace(pal, 'constexpr uint32_t kDireccion = 0x07646000;')
             cambios += nuevo != texto
             escribir(rel, nuevo)
 
@@ -215,7 +222,7 @@ def main():
     manifiesto = open(os.path.join(APP, 'nfsmw_manifest.toml'), encoding='utf-8', newline='').read()
     manifiesto = manifiesto.replace('file_path = "../assets/game_root/default.xex"', 'file_path = "%s"' % xex)
     # the codegen requires the XEX to be inside game_root
-    manifiesto = manifiesto.replace('game_root = "../assets/game_root"', 'game_root = "%s"' % os.path.dirname(xex))
+    manifiesto = manifiesto.replace('game_root = "../assets/game_root"', 'game_root = "%s"' % posixpath.dirname(xex))
     escribir('nfsmw_manifest.toml', manifiesto)
 
     # function partition seeded with the Spanish one. First the safe and the corrected pairs; a doubtful one

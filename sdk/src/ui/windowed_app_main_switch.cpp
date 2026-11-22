@@ -81,6 +81,9 @@ int main(int argc, char* argv[]) {
     app->SetParsedArguments(std::move(parsed));
 
     const bool initialized = app->OnInitialize();
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+    std::fprintf(stderr, "[switch2] app initialization %s\n", initialized ? "ready" : "failed");
+#endif
     if (!initialized) {
       REXLOG_ERROR("Switch: app initialization failed");
     }

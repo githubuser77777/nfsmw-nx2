@@ -105,7 +105,13 @@ bool ReXApp::OnInitialize() {
   if (!SetupPresentation())
     return false;
 
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] finalize paths begin\n");
+#endif
   auto paths = OnFinalizePaths(resolved_defaults_, MakeResumeCallback());
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] finalize paths %s\n", paths ? "ready" : "deferred");
+#endif
   if (!paths) {
     // Async: consumer will invoke resume when ready. OnInitialize returns
     // true so the event loop keeps pumping (wizard dialogs render).
@@ -114,6 +120,9 @@ bool ReXApp::OnInitialize() {
 
   if (!ConstructRuntime(*paths))
     return false;
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] runtime construction ready\n");
+#endif
   LaunchModule();
   return true;
 }
@@ -176,10 +185,17 @@ bool ReXApp::SetupEnvironment() {
   // Late-phase logging
   std::string log_file_cvar = REXCVAR_GET(log_file);
   std::string log_level_str = REXCVAR_GET(log_level);
+#if defined(__SWITCH2__) && !defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  log_level_str = "warn";
+#else
   if (REXCVAR_GET(log_verbose) && log_level_str == "info")
     log_level_str = "trace";
+#endif
 
   auto category_levels = rex::ParseCategoryLevelsFromConfig(config_path_);
+#if defined(__SWITCH2__) && !defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  category_levels.clear();
+#endif
   auto log_config = rex::BuildLogConfig(log_file_cvar.empty() ? nullptr : log_file_cvar.c_str(),
                                         log_level_str, category_levels);
   if (log_file_cvar.empty()) {
@@ -188,7 +204,9 @@ bool ReXApp::SetupEnvironment() {
   }
 
   rex::InitLogging(log_config);
+#if !defined(__SWITCH2__) || defined(NFSMW_SWITCH2_DIAGNOSTICS)
   rex::RegisterLogLevelCallback();
+#endif
 
   log_sink_ = std::make_shared<rex::LogCaptureSink>();
   rex::AddSink(log_sink_);
@@ -217,6 +235,10 @@ bool ReXApp::SetupEnvironment() {
 }
 
 bool ReXApp::ConstructRuntime(const PathConfig& paths) {
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] runtime construction begin, game root: %s\n",
+               paths.game_data_root.string().c_str());
+#endif
   if (paths.game_data_root.empty()) {
     auto msg = std::string("--game_data_root was not provided.");
     REXLOG_ERROR("{}", msg);
@@ -250,7 +272,13 @@ bool ReXApp::ConstructRuntime(const PathConfig& paths) {
     runtime_->set_imgui_drawer(imgui_drawer_.get());
   }
 
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] runtime setup begin\n");
+#endif
   auto status = runtime_->Setup(ppc_info_, std::move(config_));
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] runtime setup status 0x%08x\n", unsigned(status));
+#endif
   if (XFAILED(status)) {
     REXLOG_ERROR("Runtime setup failed: {:08X}", status);
     return false;
@@ -305,7 +333,13 @@ bool ReXApp::ConstructRuntime(const PathConfig& paths) {
     }
   }
 
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] XEX load begin\n");
+#endif
   status = runtime_->LoadXexImage(xex_image);
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] XEX load status 0x%08x\n", unsigned(status));
+#endif
   if (XFAILED(status)) {
     auto msg = fmt::format("Failed to load XEX ({}): {:08X}", xex_image, status);
     REXLOG_ERROR("{}", msg);
@@ -360,6 +394,9 @@ bool ReXApp::SetupPresentation() {
   }
 
   // Create window
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] window creation begin\n");
+#endif
   window_ = rex::ui::Window::Create(app_context(), GetName(), 1280, 720);
   if (!window_) {
     REXLOG_ERROR("Failed to create window");
@@ -381,7 +418,13 @@ bool ReXApp::SetupPresentation() {
       window_->SetFullscreen(rex::string::from_string<bool>(value, false));
     }
   });
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] window open begin\n");
+#endif
   window_->Open();
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+  std::fprintf(stderr, "[switch2] window open returned\n");
+#endif
 
   auto* graphics_system = config_.graphics.get();
   if (graphics_system && graphics_system->presenter()) {
@@ -389,13 +432,32 @@ bool ReXApp::SetupPresentation() {
     auto* presenter = graphics_system->presenter();
     auto* provider = graphics_system->provider();
     if (provider) {
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+      std::fprintf(stderr, "[switch2] immediate drawer creation begin\n");
+#endif
       immediate_drawer_ = provider->CreateImmediateDrawer();
+#if defined(__SWITCH2__)
+      std::fprintf(stderr, "[switch2] immediate drawer %s\n",
+                   immediate_drawer_ ? "ready" : "failed");
+#endif
       if (immediate_drawer_) {
         immediate_drawer_->SetPresenter(presenter);
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+        std::fprintf(stderr, "[switch2] overlay setup begin\n");
+#endif
         SetupOverlays(presenter, immediate_drawer_.get());
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+        std::fprintf(stderr, "[switch2] overlay setup ready\n");
+#endif
       }
     }
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+    std::fprintf(stderr, "[switch2] window presenter attachment begin\n");
+#endif
     window_->SetPresenter(presenter);
+#if defined(__SWITCH2__) && defined(NFSMW_SWITCH2_DIAGNOSTICS)
+    std::fprintf(stderr, "[switch2] window presenter attachment ready\n");
+#endif
   } else if (!graphics_system) {
     // Detached mode: the app brings its own renderer and drives its own paint
     // loop. ReXApp owns the returned drawer via immediate_drawer_.

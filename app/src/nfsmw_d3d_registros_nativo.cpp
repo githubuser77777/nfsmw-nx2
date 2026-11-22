@@ -49,6 +49,7 @@
 #include "nfsmw_informe_diferido.h"  // deferred reports
 #include "nfsmw_esperas_tiron.h"     // TreeCull in the [tiron] juego log line
 #include <rex/platform.h>
+#include <rex/memory/guest_address.h>
 
 #include <atomic>
 #include <chrono>
@@ -67,7 +68,9 @@ namespace {
 
 // Same as REX_PHYS_HOST_OFFSET in nfsmw_pch.h: on Win32 physical addresses are 0x1000 higher.
 inline uint32_t Desplazamiento(uint32_t direccion) {
-#if REX_PLATFORM_WIN32
+#if defined(__SWITCH2__)
+  return uint32_t(rex::memory::FoldGuestAddress(direccion) - direccion);
+#elif REX_PLATFORM_WIN32
   return direccion >= 0xE0000000u ? 0x1000u : 0u;
 #else
   (void)direccion;
@@ -75,7 +78,11 @@ inline uint32_t Desplazamiento(uint32_t direccion) {
 #endif
 }
 inline uint8_t* Puntero(uint8_t* base, uint32_t direccion) {
+#if defined(__SWITCH2__)
+  return base + rex::memory::FoldGuestAddress(direccion);
+#else
   return base + direccion + Desplazamiento(direccion);
+#endif
 }
 inline uint32_t Leer32(uint8_t* base, uint32_t direccion) {
   uint32_t v;

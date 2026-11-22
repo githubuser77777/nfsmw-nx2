@@ -11,11 +11,14 @@
 #include <cstring>
 
 #include <rex/platform.h>
+#include <rex/memory/guest_address.h>
 
 namespace nfsmw::audio_nativo {
 
 inline uint8_t* Dir(uint8_t* base, uint32_t dir) {
-#if REX_PLATFORM_WIN32 || (REX_PLATFORM_MAC && REX_ARCH_ARM64)
+#if defined(__SWITCH2__)
+  return base + rex::memory::FoldGuestAddress(dir);
+#elif REX_PLATFORM_WIN32 || (REX_PLATFORM_MAC && REX_ARCH_ARM64)
   return base + dir + (dir >= 0xE0000000u ? 0x1000u : 0u);
 #else
   return base + dir;

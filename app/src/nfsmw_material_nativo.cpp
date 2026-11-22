@@ -67,6 +67,7 @@
 #include <rex/logging.h>
 #include "nfsmw_informe_diferido.h"  // deferred reports
 #include <rex/platform.h>
+#include <rex/memory/guest_address.h>
 
 #include <atomic>
 #include <bit>
@@ -96,7 +97,9 @@ namespace {
 // computed from the address the macro receives, also for the aligned 16-byte accesses).
 // ---------------------------------------------------------------------------------------------------------------
 inline uint32_t Desplazamiento(uint32_t direccion) {
-#if REX_PLATFORM_WIN32 || (REX_PLATFORM_MAC && REX_ARCH_ARM64)
+#if defined(__SWITCH2__)
+  return uint32_t(rex::memory::FoldGuestAddress(direccion) - direccion);
+#elif REX_PLATFORM_WIN32 || (REX_PLATFORM_MAC && REX_ARCH_ARM64)
   return direccion >= 0xE0000000u ? 0x1000u : 0u;
 #else
   (void)direccion;
@@ -104,7 +107,11 @@ inline uint32_t Desplazamiento(uint32_t direccion) {
 #endif
 }
 inline uint8_t* Puntero(uint8_t* base, uint32_t direccion) {
+#if defined(__SWITCH2__)
+  return base + rex::memory::FoldGuestAddress(direccion);
+#else
   return base + direccion + Desplazamiento(direccion);
+#endif
 }
 inline uint8_t Leer8(uint8_t* base, uint32_t direccion) {
   return *Puntero(base, direccion);
