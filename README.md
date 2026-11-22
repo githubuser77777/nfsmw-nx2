@@ -10,7 +10,7 @@ A native Nintendo Switch 2 port of the Xbox 360 version of **Need for Speed: Mos
 > [!IMPORTANT]
 > This fork adds an experimental Switch 2 build using [ounce-devkit](https://github.com/ouncebrew/ounce-devkit).
 > The USA edition has been played on hardware, but compatibility is incomplete and stable 60 FPS is not guaranteed.
-> The installer below is for the upstream Switch 1 release, not this Switch 2 build.
+> The installer for the Switch 2 build is [here](https://githubuser77777.github.io/nfsmw-nx2-installer).
 
 It's not an emulator. The PowerPC code of the game's `default.xex` is statically recompiled to C++ with
 [ReXGlue](https://github.com/rexglue/rexglue-sdk) and compiled for the Switch and the game is drawn by a native
