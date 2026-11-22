@@ -3,9 +3,9 @@
 <img src="extras/banner.png" alt="Need for Speed: Most Wanted" width="60%">
 
 </div>
-<h1 align=center>Need for Speed: Most Wanted — Nintendo Switch port</h1>
+<h1 align=center>Need for Speed: Most Wanted — Nintendo Switch 2 port</h1>
 
-A native Nintendo Switch port of the Xbox 360 version of **Need for Speed: Most Wanted** (2005).
+A native Nintendo Switch 2 port of the Xbox 360 version of **Need for Speed: Most Wanted** (2005).
 
 > [!IMPORTANT]
 > This fork adds an experimental Switch 2 build using [ounce-devkit](https://github.com/ouncebrew/ounce-devkit).
@@ -308,14 +308,6 @@ the game for the code generator. The whole process is in [docs/building.md](docs
 - **[danfromtico](https://github.com/danfromtico/mesa-switch)** and **[NaGaa95](https://github.com/NaGaa95/mesa-switch)** — mesa-switch: Mesa, NVK and NAK on Horizon.
 - **[devkitPro](https://devkitpro.org) and [switchbrew](https://github.com/switchbrew/libnx)** — devkitA64 and libnx.
 - The other libraries listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-
-## Support
-
-**[HERE](https://linktr.ee/stevensmods)** are my social media
-
-If you enjoy my work and want to support me:
-
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/stevenss)
 
 ## Legal
 
