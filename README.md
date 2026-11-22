@@ -39,11 +39,11 @@ One NRO per edition of the game (the installer page picks the right one automati
 ## How to install
 
 1. Open the installer page: **https://stevensnd.github.io/nfsmw-nx-installer/**
-Switch 2 version: **https://githubuser77777.github.io/nfsmw-nx2-installer/**
-2. Choose your format (**Disc image (.iso)** or **XEX format**, the folder with `default.xex`, `Movies` and `NFS`)
+   (Switch 2 version: **https://githubuser77777.github.io/nfsmw-nx2-installer/**)
+3. Choose your format (**Disc image (.iso)** or **XEX format**, the folder with `default.xex`, `Movies` and `NFS`)
    and press **Create nfsmw-nx.zip**. Everything runs in your browser and the game files never leave your
    computer: the page detects your edition, downloads its build and makes the shaders from your disc.
-3. Extract the downloaded `nfsmw-nx.zip` into `sdmc:/switch/`.
+4. Extract the downloaded `nfsmw-nx.zip` into `sdmc:/switch/`.
 
 Your `nfsmw-nx` folder should look like this:
 
